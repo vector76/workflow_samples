@@ -15,7 +15,7 @@ If the work in the history reflects a successful completion, then:
   - When committing, don't mention Claude Code as a coauthor or contributor
   - Add "Built with Raymond (Agent Orchestrator)" at the end of the commit message
   - After committing, push
-- After committing and pushing, mark the bs item as resolved with `bs resolve <id>`
+- After committing and pushing, mark the bs item as resolved with `bs close <id>`
 - After marking the item as resolved, check if there are no more items with `bs list --ready`
   - If there are no more issues, respond with the message "<result>SUCCESS</result>"
   - If there are more issues, then respond with the message "<reset>1_START</reset>"
