@@ -6,88 +6,106 @@ Raymond treats workflows as state machines where each state is a markdown prompt
 
 ## Workflows
 
-### bs_work — Beads Server Work Loop
+Each workflow has its own README with full state descriptions, context management details, and design notes. The pseudocode below shows the high-level flow.
 
-Pulls tasks from [Beads Server](https://github.com/vector76/beads_server) using the `bs` CLI, implements them, self-reviews, and commits. Loops back to pick up the next task until the backlog is empty.
+### [bs_work](bs_work/) — Beads Server Work Loop
 
-```
-1_START.md ──goto──> 2_IMPL.md ──goto──> 3_CHECK_FIX.md ──goto──> 4_NO_FIX.md
-                                              ^                     │
-                                              │ (something fixed)   │
-                                              └─────────────────────┘
-                                                                    │ (nothing to fix)
-                                                                    v
-                                                              5_COMMIT.md
-                                                                    │
-                                                    (more tasks) ───┘──reset──> 1_START.md
-                                                    (no tasks)   ───┘──result──> done
-```
-
-| State | Description |
-|-------|-------------|
-| `1_START.md` | Check for in-progress work (`bs mine`), or claim a new task (`bs claim`) |
-| `2_IMPL.md` | Implement the task; do not close the backlog item yet |
-| `3_CHECK_FIX.md` | Self-review: look for mistakes, errors, or improvements |
-| `4_NO_FIX.md` | Evaluate whether the review found anything worth fixing. Loop back to review if yes, proceed to commit if no |
-| `5_COMMIT.md` | Commit, push, and resolve the backlog item. Reset to `1_START.md` if more tasks remain |
-
-### taskmd_work — TASK.md File Work Loop
-
-Reads numbered `TASK<n>.md` files from the working directory, implements them one at a time with a self-review loop, and commits. Uses shell script states for zero-cost control flow decisions.
+Claims tasks from a [beads server](https://github.com/vector76/beads_server), implements them one at a time with a self-review loop, and commits. Loops until the backlog is empty.
 
 ```
-1_START.md ──goto──> 2_CHECK_WRAP.sh ──call──> 3_CHECK_FIX.md ──goto──> 4_NO_FIX.md
-                          ^                                                  │
-                          │                                          result (SOMETHING FIXED
-                          │                                           or DONE)
-                          │                                                  v
-                          │                                          5_CHECK_DONE.sh
-                          │  (SOMETHING FIXED)                               │
-                          └──────────────────────────────────────────────────-┘
-                                                                (DONE)       │
-                                                                             v
-                                                                       6_COMMIT.md
-                                                                             │
-                                                             (more tasks) ───┘──reset──> 1_START.md
-                                                             (no tasks)   ───┘──result──> done
+START: check for in-progress work, or claim a ready task
+  if no tasks → result DONE
+IMPL: implement the task
+CHECK_FIX: self-review the work
+NO_FIX: did the review fix anything?
+  if yes → goto CHECK_FIX
+COMMIT: commit, push, close the task
+  if more tasks → reset to START
+  else → result SUCCESS
 ```
 
-| State | Description |
-|-------|-------------|
-| `1_START.md` | Find the lowest-numbered `TASK<n>.md` file and implement it |
-| `2_CHECK_WRAP.sh` | Shell script that invokes the review step via `<call>`, routing the result to `5_CHECK_DONE.sh` |
-| `3_CHECK_FIX.md` | Self-review: look for mistakes or improvements |
-| `4_NO_FIX.md` | Evaluate whether fixes were applied. Returns `SOMETHING FIXED` or `DONE` |
-| `5_CHECK_DONE.sh` | Shell script that routes based on the review result — loop back for more review or proceed to commit |
-| `6_COMMIT.md` | Commit, push, and rename the task file to `TASK-DONE-[datetime].md`. Reset to `1_START.md` if more tasks remain |
+### [bs_work_multi](bs_work_multi/) — Parallel Beads Server Work Loop
 
-This workflow demonstrates **hybrid script/markdown states** — shell scripts handle deterministic branching at zero token cost, while markdown states handle the work that requires LLM reasoning.
-
-### human_prd — Interactive PRD Refinement
-
-An interactive loop where the agent drafts or refines a PRD (`PRD.md`), then pauses for human input before continuing. The agent writes questions or assumptions to `HUMAN_PROMPT.md` with a `<!-- COMPOSING -->` marker appended at the end. The script `2_PROMPT.sh` uses `inotifywait` to block until that marker is removed, then inspects the file contents to decide what to do next.
-
-**What the human does:**
-
-1. Open `HUMAN_PROMPT.md` in an editor. The agent's questions/assumptions will be there, followed by a `<!-- COMPOSING -->` marker.
-2. Write your answers or clarifications in the file.
-3. **Delete the `<!-- COMPOSING -->` line** and save. This signals that your input is ready, and the agent will process your response and loop back for another round.
-4. To **end the conversation**, delete all contents of the file (leave it empty), remove the `<!-- COMPOSING -->` line, and save. The agent will treat an empty file as "done" and terminate.
+A variant of `bs_work` designed for multiple independent Raymond instances running in parallel, each in its own checkout. Instances coordinate only at `git push` time via a rebase loop with conflict resolution, re-testing, and a retry cap.
 
 ```
-1_START.md ──goto──> 2_PROMPT.sh ──(wait for human)──> 3_RESPONSE.md ──reset──> 1_START.md
-                          │
-                          │ (human saves empty file)
-                          v
-                     4_CLEANUP.sh ──result──> done
+START: initial setup
+CLAIM_TASK: claim a ready task from beads server
+  if nothing ready → CHECK_DONE (poll loop)
+IMPLEMENT: implement the task
+CHECK_FIX: self-review the work
+NO_FIX: did the review fix anything?
+  if yes → goto CHECK_FIX
+COMMIT: commit locally
+  if unsuccessful → BAIL_OUT
+PUSH_GATE: check retry counter
+  if over cap → BAIL_OUT
+  call FETCH_REBASE (isolated session):
+    rebase onto origin/main
+    if conflicts → RESOLVE_CONFLICTS
+    if rebased → RE_TEST
+    returns ok, REWORK, or BAIL
+PUSH: inspect call result
+  if ok → try git push
+    if rejected → goto PUSH_GATE (retry)
+    if success → CLOSE_TASK → reset to CLAIM_TASK
+  if REWORK → RUN_TESTS → CHECK_FIX (re-enter review loop)
+  if BAIL → BAIL_OUT
+BAIL_OUT: discard work, unclaim task → reset to CLAIM_TASK
+CHECK_DONE: poll for ready/open tasks
+  if ready found → reset to CLAIM_TASK
+  if open tasks exist → sleep, poll again
+  if nothing open → result DONE
 ```
 
-| State | Description |
-|-------|-------------|
-| `1_START.md` | Read `PRD.md` (if it exists) and write questions or assumptions to `HUMAN_PROMPT.md` |
-| `2_PROMPT.sh` | Appends `<!-- COMPOSING -->` to the file, then blocks until the human removes that marker. If the file has content, proceeds to `3_RESPONSE.md`. If the file is empty, proceeds to `4_CLEANUP.sh` |
-| `3_RESPONSE.md` | Read the human's clarifications from `HUMAN_PROMPT.md` and use them to refine or create `PRD.md` |
-| `4_CLEANUP.sh` | Delete `HUMAN_PROMPT.md` and terminate |
+### [taskmd_work](taskmd_work/) — TASK.md File Work Loop
+
+Reads numbered `TASK<n>.md` files from the working directory, implements them one at a time with a self-review loop, and commits. Uses shell scripts for zero-cost control flow and `<call>` to isolate review context.
+
+```
+START: find lowest TASK<n>.md, implement it
+CHECK_WRAP: call CHECK_FIX (isolated session):
+  CHECK_FIX: self-review the work
+  NO_FIX: did the review fix anything?
+    if yes → result SOMETHING FIXED
+    if no → result DONE
+CHECK_DONE: inspect call result
+  if SOMETHING FIXED → goto CHECK_WRAP
+  if DONE → continue
+COMMIT: rename task file, commit, push
+  if unsuccessful → result INCOMPLETE
+  if more tasks → reset to START
+  else → result SUCCESS
+```
+
+### [plan_to_beads](plan_to_beads/) — Plan to Beads Conversion
+
+Transforms an implementation plan into structured beads on a beads server. Generates a bead list, iteratively reviews it until converged, then creates all beads with dependencies.
+
+```
+START: read implementation plan from --input file
+  if no input specified → result error
+GENERATE_BEADS_LIST: create bead_list.md from plan
+REVIEW_FIX: review bead_list.md for issues, fix them
+CHECK_CONVERGENCE: did the review fix anything?
+  if yes → goto REVIEW_FIX
+CREATE_BEADS: create all beads via bs, set up dependencies
+VALIDATE: verify all beads and dependencies were created
+  → result SUCCESS or VALIDATION FAILED
+```
+
+### [human_prd](human_prd/) — Interactive PRD Refinement
+
+An interactive loop where the agent drafts a PRD (`PRD.md`) and pauses for human input via `HUMAN_PROMPT.md`. The human removes a `<!-- COMPOSING -->` marker to signal their response is ready.
+
+```
+START: read PRD.md (if exists), write questions to HUMAN_PROMPT.md
+PROMPT: wait for human to remove <!-- COMPOSING --> marker
+  if human wrote a response → continue
+  if human left file empty → CLEANUP → result DONE
+RESPONSE: read human input, refine PRD.md
+  → reset to START
+```
 
 ## Raymond Concepts Used
 
@@ -96,20 +114,24 @@ These samples exercise several key Raymond features:
 | Feature | Description | Used In |
 |---------|-------------|---------|
 | `<goto>` | Continue in the same context (session preserved) | All workflows |
-| `<reset>` | Discard context and start fresh | `bs_work`, `taskmd_work` (loop back for next task) |
+| `<reset>` | Discard context and start fresh | `bs_work`, `bs_work_multi`, `taskmd_work`, `human_prd` |
 | `<result>` | Return a value / terminate the agent | All workflows |
-| `<call>` | Invoke a sub-workflow and return the result | `taskmd_work` (review loop) |
-| Shell script states (`.sh`) | Zero-cost deterministic control flow | `taskmd_work`, `human_prd` |
+| `<call>` | Invoke a sub-workflow and return the result | `taskmd_work` (review loop), `bs_work_multi` (rebase loop) |
+| `<call return="...">` | Specify a return destination for the call result | `taskmd_work`, `bs_work_multi` |
+| Shell script states (`.sh`) | Zero-cost deterministic control flow | `taskmd_work`, `bs_work_multi`, `human_prd` |
 | YAML frontmatter | Declare allowed transitions and model selection | All `.md` states |
-| `model: sonnet` | Use a cheaper model for simple evaluation steps | `taskmd_work` (`4_NO_FIX.md`, `6_COMMIT.md`) |
-| `{{result}}` / `RAYMOND_RESULT` | Template variable for receiving return values | `taskmd_work` (`5_CHECK_DONE.sh`) |
+| `model: sonnet` | Use a cheaper model for simple evaluation steps | `taskmd_work` |
+| `effort: low` | Use extended thinking at low effort for fast decisions | `plan_to_beads` |
+| `{{result}}` / `RAYMOND_RESULT` | Template variable for receiving return values | `taskmd_work`, `bs_work_multi`, `plan_to_beads` |
 
 ## Running a Workflow
 
 ```bash
 # Start a workflow by pointing Raymond at the first state file
 raymond bs_work/1_START.md
+raymond bs_work_multi/1_START.md
 raymond taskmd_work/1_START.md
+raymond plan_to_beads/1_START.md --input "my_plan.md"
 raymond human_prd/1_START.md
 
 # With options
@@ -121,6 +143,8 @@ raymond bs_work/1_START.md --dangerously-skip-permissions
 
 - [Raymond](https://github.com/anthropics/raymond) installed and on your PATH
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed (Raymond invokes it under the hood)
-- For `bs_work`: the `bs` CLI from [Beads Server](https://github.com/vector76/beads_server) installed and configured
+- For `bs_work` / `bs_work_multi`: the `bs` CLI from [Beads Server](https://github.com/vector76/beads_server) installed and configured
+- For `bs_work_multi`: separate directory with its own git clone (or worktree) per instance
 - For `taskmd_work`: one or more `TASK.md` / `TASK1.md` / `TASK2.md` files in the working directory
+- For `plan_to_beads`: an implementation plan file to pass via `--input`
 - For `human_prd`: `inotifywait` available (from `inotify-tools` on Linux)
