@@ -11,11 +11,13 @@ not just pick one side blindly.
 
 After resolving all conflicts in a file, stage it with `git add <file>`.
 
-Once all conflicts are resolved, run `git rebase --continue` to complete
-the rebase.
+Once all conflicts are resolved, run `git rebase --continue`.  If the
+rebase has multiple commits to replay, `--continue` may stop again with
+new conflicts on a subsequent commit.  Repeat the resolve/add/continue
+cycle until the rebase finishes completely.
 
-If the rebase completes successfully, respond with "<goto>RE_TEST</goto>"
-so the code can be verified.
+If the rebase completes successfully (no more commits to replay), respond
+with "<goto>RE_TEST</goto>" so the code can be verified.
 
 If you cannot resolve the conflicts (they are too complex or contradictory),
 abort the rebase with `git rebase --abort` and respond with

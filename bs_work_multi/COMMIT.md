@@ -1,6 +1,7 @@
 ---
 allowed_transitions:
   - { tag: goto, target: PUSH_GATE.sh }
+  - { tag: goto, target: BAIL_OUT.md }
 ---
 Look at the conversation history and determine if it reflects a successful
 resolution of the chosen work item.
@@ -8,9 +9,9 @@ resolution of the chosen work item.
 If the work in the history was unsuccessful or incomplete (not all features
 implemented or tests not passing or some other failing condition) then:
 - Do not close the bs item yet.  It must stay as in-progress for now.
-- Do not stage or commit (leave files "dirty").
-- Respond with "<goto>PUSH_GATE.sh</goto>" anyway — the push loop will
-  handle the situation.
+- Do not stage or commit.
+- Respond with "<goto>BAIL_OUT</goto>" to abandon this task and release it
+  for another agent to attempt.
 
 If the work in the history reflects a successful completion, then:
 - Stage the appropriate files (`git add`) and commit.

@@ -28,10 +28,30 @@ point of coordination is the git remote.
 ## Workflow per Instance
 
 ```
-CLAIM_TASK
+1_START
     |
     v
-IMPLEMENT
+CLAIM_TASK ←─────────────────────────────────────────────┐
+    |       \                                            |
+    |    nothing ready                                   |
+    |         \                                          |
+    v          v                                         |
+IMPLEMENT   CHECK_DONE.sh ·······  $0 script: poll loop  |
+              |        \                                 |
+           open tasks   nothing open                     |
+           exist (wait)    \                             |
+              |             v                            |
+           sleep 3m    <result>DONE</result>             |
+              |                                          |
+              v                                          |
+           (check ready ─── ready found ─────────────────┘
+            again)              (<reset>)
+              |
+              v
+           (check open ─── still open → sleep again)
+              |
+              v
+           (nothing open → <result>DONE</result>)
     |
     v
 CHECK_FIX  ←──────────────────────────────────┐
@@ -41,6 +61,12 @@ NO_FIX ───→ (loop back if fixes were made) ────┘
     |
     v
 COMMIT
+    |        \
+    |      unsuccessful
+    |          \
+    |        BAIL_OUT ──→ CLAIM_TASK  (<reset>)
+    |
+  successful
     |
     v
 PUSH_GATE.sh ··················  $0 script: counter check
@@ -126,13 +152,14 @@ PUSH.sh receives the result and routes:
 
 **CLOSE_TASK**: An LLM state that runs `bs close <id>` on the task
 (using the issue ID from session context), then transitions with
-`<reset>CLAIM_TASK</reset>` to start the next task. Closing the
-task automatically releases any dependent tasks on the beads server.
+`<reset>CLAIM_TASK</reset>`. Closing the task automatically releases
+any dependent tasks on the beads server. CLAIM_TASK then either
+claims the next ready task or enters the CHECK_DONE.sh polling loop.
 
-**Script vs. LLM states**: PUSH_GATE.sh, FETCH_REBASE.sh, and PUSH.sh
-are shell scripts ($0 cost). CLAIM_TASK, IMPLEMENT, CHECK_FIX,
-NO_FIX, COMMIT, RESOLVE_CONFLICTS, RE_TEST, RUN_TESTS, BAIL_OUT,
-CLOSE_TASK are LLM states.
+**Script vs. LLM states**: PUSH_GATE.sh, FETCH_REBASE.sh, PUSH.sh,
+and CHECK_DONE.sh are shell scripts ($0 cost). 1_START, CLAIM_TASK,
+IMPLEMENT, CHECK_FIX, NO_FIX, COMMIT, RESOLVE_CONFLICTS, RE_TEST,
+RUN_TESTS, BAIL_OUT, CLOSE_TASK are LLM states.
 
 ## Key Differences from bs_work
 
@@ -268,7 +295,25 @@ retried by any agent from a fresh copy of the remote. Since the
 fresh base includes all the commits that were causing conflicts, the
 retry is likely to succeed.
 
-### 8. Claim tolerance
+### 8. Polling loop when idle
+
+When CLAIM_TASK finds no ready tasks, instead of terminating
+immediately it transitions to CHECK_DONE.sh — a $0 polling script
+that periodically checks for work:
+
+1. `bs list --ready` — any ready? → `<reset>CLAIM_TASK</reset>`
+2. `bs list --status open` — any open (possibly blocked)? → sleep
+   3 minutes and loop. These tasks may become unblocked when other
+   agents close their work, releasing dependents.
+3. Nothing open (all closed or in-progress) → `<result>DONE</result>`.
+   All remaining work is either finished or actively being handled
+   by other agents. This worker is surplus.
+
+This prevents workers from terminating prematurely when blocked tasks
+exist that could become ready. It also ensures workers terminate
+naturally when all work is complete, rather than polling forever.
+
+### 9. Claim tolerance
 
 With multiple instances calling `bs list --ready` and `bs claim`
 concurrently, two instances may try to claim the same task. Since

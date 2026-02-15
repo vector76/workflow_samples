@@ -1,12 +1,17 @@
 #!/bin/bash
 # FETCH_REBASE.sh — $0 script state: fetch + rebase + route by outcome
 #
-# Three outcomes:
-#   clean    → <result>(ok)</result>        (nothing to replay)
-#   merged   → <goto>RE_TEST</goto>         (rebased, verify code)
-#   conflicts → <goto>RESOLVE_CONFLICTS</goto> (needs LLM resolution)
+# Four outcomes:
+#   fetch fail → <result>BAIL</result>          (network/auth failure)
+#   clean      → <result>(ok)</result>          (nothing to replay)
+#   merged     → <goto>RE_TEST</goto>           (rebased, verify code)
+#   conflicts  → <goto>RESOLVE_CONFLICTS</goto> (needs LLM resolution)
 
-git fetch origin >/dev/null 2>&1
+if ! git fetch origin >/dev/null 2>&1; then
+    # Fetch failed (network issue, auth problem, etc.) — cannot proceed
+    echo '<result>BAIL</result>'
+    exit 0
+fi
 
 rebase_output=$(git rebase origin/main 2>&1)
 exit_code=$?
