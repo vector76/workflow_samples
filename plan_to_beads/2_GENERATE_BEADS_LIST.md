@@ -13,3 +13,6 @@ Create a markdown file named `bead_list.md` containing:
 
 The format should be a simple markdown list that will later be updated with actual
 bead identifiers (like bd-xk2a3) as they are created.
+
+STOP after writing bead_list.md. Do not create any actual beads yet — that
+happens in a later step.

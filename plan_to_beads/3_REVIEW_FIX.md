@@ -14,3 +14,6 @@ If you find major or minor issues, fix them directly in bead_list.md.
 
 "Not a bug" observations (things that are fine as-is) do not need to be fixed,
 though you may optionally improve them if clearly beneficial.
+
+STOP after reviewing/fixing bead_list.md. Do not create any actual beads yet —
+that happens in a later step.

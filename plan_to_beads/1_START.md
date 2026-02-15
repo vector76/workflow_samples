@@ -16,6 +16,9 @@ Otherwise, read the implementation plan from the specified file.
 If the file does not exist or cannot be read, respond with:
 <result>File not found: {{result}}</result>
 
-Once you have successfully read the implementation plan, proceed to the next step
-with:
+Once you have successfully read the implementation plan, STOP. Do not take any
+other actions yet — this step only reads the file. Further steps will handle
+everything else.
+
+After reading the file, respond with exactly:
 <goto>2_GENERATE_BEADS_LIST.md</goto>

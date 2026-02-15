@@ -19,3 +19,6 @@ For each bead in bead_list.md:
 After ALL beads have been created and you have collected all their identifiers,
 set up the dependencies between beads using the `bs` command and the identifiers
 from bead_list.md.
+
+STOP after creating all beads and dependencies. Do not validate them yet — that
+happens in a later step.
