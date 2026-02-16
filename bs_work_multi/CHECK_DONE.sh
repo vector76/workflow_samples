@@ -11,15 +11,15 @@
 POLL_INTERVAL=180
 
 # Check if any tasks are ready to claim right now
-ready_count=$(bs list --ready 2>/dev/null | wc -l)
-if [ "$ready_count" -gt 0 ]; then
+ready_beads=$(bs list --ready 2>/dev/null | jq -r '.beads')
+if [ "$ready_beads" != "[]" ]; then
     echo '<reset>CLAIM_TASK</reset>'
     exit 0
 fi
 
 # Check if any tasks are open (including blocked)
-open_count=$(bs list --status open 2>/dev/null | wc -l)
-if [ "$open_count" -gt 0 ]; then
+open_beads=$(bs list --status open 2>/dev/null | jq -r '.beads')
+if [ "$open_beads" != "[]" ]; then
     # Open tasks exist but none are ready — they may become unblocked
     # when other agents complete their work. Wait and check again.
     sleep $POLL_INTERVAL
