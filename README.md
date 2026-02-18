@@ -78,6 +78,37 @@ COMMIT: rename task file, commit, push
   else → result SUCCESS
 ```
 
+### [feat_develop](feat_develop/) — Interactive Feature Document Elaboration
+
+A human-in-the-loop workflow that collaboratively elaborates a feature document. Starting from a brief description — as short as a single sentence — the agent analyzes the codebase, identifies gaps and ambiguities, makes concrete assumptions, and proposes them for human review. The human approves, overrides, or adds information, and the loop continues until the document is complete and well-specified.
+
+```
+START: read feature document from --input file
+  if no input → result error
+ANALYZE: re-read feature doc, explore codebase, identify gaps/ambiguities,
+         write assumptions and issues to HUMAN_PROMPT.md
+PROMPT: (shell) wait for human to remove <!-- COMPOSING --> marker
+  if human responded → continue
+  if human left file empty → CLEANUP → result DONE
+RESPONSE: apply human feedback, update feature document in place
+  → goto ANALYZE (loop)
+```
+
+### [feat_plan](feat_plan/) — Feature Document to Implementation Plan
+
+Takes a feature document and produces a detailed, high-level implementation plan. Researches the relevant parts of the codebase to ground the plan in the existing architecture, then iteratively reviews and refines it until no further improvements are found. The plan focuses on strategy, sequencing, and dependencies — not code.
+
+```
+START: read feature document from --input file, derive plan filename ([feature]_plan.md)
+  if no input → result error
+DRAFT_PLAN: re-read feature doc, research relevant codebase, write plan file
+REVIEW_FIX: re-read plan with fresh eyes, fix missing steps / dependency
+            violations / coverage gaps / over- or under-specification
+CHECK_CONVERGENCE: did the review fix anything?
+  if yes → goto REVIEW_FIX
+  if no → result [feature]_plan.md
+```
+
 ### [plan_to_beads](plan_to_beads/) — Plan to Beads Conversion
 
 Transforms an implementation plan into structured beads on a beads server. Generates a bead list, iteratively reviews it until converged, then creates all beads with dependencies.
@@ -118,11 +149,11 @@ These samples exercise several key Raymond features:
 | `<result>` | Return a value / terminate the agent | All workflows |
 | `<call>` | Invoke a sub-workflow and return the result | `taskmd_work` (review loop), `bs_work_multi` (rebase loop) |
 | `<call return="...">` | Specify a return destination for the call result | `taskmd_work`, `bs_work_multi` |
-| Shell script states (`.sh`) | Zero-cost deterministic control flow | `taskmd_work`, `bs_work_multi`, `human_prd` |
+| Shell script states (`.sh`) | Zero-cost deterministic control flow | `taskmd_work`, `bs_work_multi`, `feat_develop`, `human_prd` |
 | YAML frontmatter | Declare allowed transitions and model selection | All `.md` states |
 | `model: sonnet` | Use a cheaper model for simple evaluation steps | `taskmd_work` |
-| `effort: low` | Use extended thinking at low effort for fast decisions | `plan_to_beads` |
-| `{{result}}` / `RAYMOND_RESULT` | Template variable for receiving return values | `taskmd_work`, `bs_work_multi`, `plan_to_beads` |
+| `effort: low` | Use extended thinking at low effort for fast decisions | `plan_to_beads`, `feat_plan` |
+| `{{result}}` / `RAYMOND_RESULT` | Template variable for receiving return values | `taskmd_work`, `bs_work_multi`, `feat_develop`, `feat_plan`, `plan_to_beads` |
 
 ## Running a Workflow
 
@@ -131,6 +162,8 @@ These samples exercise several key Raymond features:
 raymond bs_work/1_START.md
 raymond bs_work_multi/1_START.md
 raymond taskmd_work/1_START.md
+raymond feat_develop/1_START.md --input "my_feature.md"
+raymond feat_plan/1_START.md --input "my_feature.md"
 raymond plan_to_beads/1_START.md --input "my_plan.md"
 raymond human_prd/1_START.md
 
@@ -146,5 +179,7 @@ raymond bs_work/1_START.md --dangerously-skip-permissions
 - For `bs_work` / `bs_work_multi`: the `bs` CLI from [Beads Server](https://github.com/vector76/beads_server) installed and configured
 - For `bs_work_multi`: separate directory with its own git clone (or worktree) per instance
 - For `taskmd_work`: one or more `TASK.md` / `TASK1.md` / `TASK2.md` files in the working directory
+- For `feat_develop`: a feature document file to pass via `--input`; `inotifywait` available (from `inotify-tools` on Linux) for human-input polling
+- For `feat_plan`: a feature document file to pass via `--input`
 - For `plan_to_beads`: an implementation plan file to pass via `--input`
 - For `human_prd`: `inotifywait` available (from `inotify-tools` on Linux)
