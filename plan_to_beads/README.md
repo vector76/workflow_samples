@@ -70,9 +70,9 @@ on disk. The workflow accounts for this in two ways:
            6_CREATE_BEADS
                 |
                 v
-           create all beads
+           create all beads (record identifiers)
            set up dependencies
-           update bead_list.md
+           open dependent beads
                 |
                 v
            7_VALIDATE
@@ -148,19 +148,24 @@ If nothing was fixed, the bead list has converged and proceeds to creation.
 
 ### 6_CREATE_BEADS.md
 
-Creates all beads using the `bs` command in two steps:
+Creates all beads using the `bs` command in three steps:
 
 **Step 1:** For each bead, composes a self-contained description from the
 implementation plan, the bead's Work entry, and the Codebase Notes section.
-Creates the bead via `bs`, records the assigned identifier, updates bead_list.md.
+Beads with no dependencies are created normally (open); beads with dependencies
+are created with `--status not_ready` to prevent them being claimed before their
+prerequisites are registered. Records the assigned identifier, updates bead_list.md.
 
 **Step 2:** After all beads exist and identifiers are collected, establishes
 dependencies between beads using `bs`.
 
+**Step 3:** Flips all `not_ready` beads to `open`. This three-step sequence
+ensures no bead can be claimed before its prerequisites are fully registered.
+
 ### 7_VALIDATE.md
 
-Verifies all beads were created, identifiers match bead_list.md, and all
-dependencies are properly established.
+Verifies all beads were created, identifiers match bead_list.md, all dependencies
+are properly established, and no beads remain in `not_ready` status.
 
 Terminates with `<result>SUCCESS</result>` or `<result>VALIDATION FAILED: ...</result>`.
 

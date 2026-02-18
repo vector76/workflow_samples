@@ -9,6 +9,8 @@ Validate that all beads were created correctly:
 3. Verify that all dependencies specified in bead_list.md have been properly
    established between the beads
 4. Check that bead identifiers in bead_list.md match the actual created beads
+5. Verify that no beads remain in `not_ready` status — all should have been flipped
+   to `open` after dependencies were set up
 
 If everything is validated successfully, respond with:
 <result>SUCCESS</result>
