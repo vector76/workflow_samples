@@ -1,14 +1,17 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: 6_VALIDATE.md }
+  - { tag: goto, target: 7_VALIDATE.md }
 ---
 Now create all the beads specified in bead_list.md using the `bs` command.
 
 **Step 1: Create all beads**
 
 For each bead in bead_list.md:
-1. Use the implementation plan and bead_list.md to determine the appropriate title,
-   description, and other parameters
+1. Compose the bead's full description using the implementation plan, the bead's
+   Work description, and the Codebase Notes section of bead_list.md (if present).
+   The description is the complete prompt the bead receives — it runs in a fresh
+   context with no memory of other beads. Make it self-contained: include specific
+   file paths and function names so the bead can get to work immediately.
 2. Create the bead using the `bs` command (use `bs --help` if needed to understand
    the command syntax)
 3. Note the assigned bead identifier (e.g., bd-xk2a3)

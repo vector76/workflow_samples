@@ -1,6 +1,6 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: 2_GENERATE_BEADS_LIST.md }
+  - { tag: goto, target: 2_EXPLORE_CODEBASE.md }
   - { tag: result }
 ---
 Check if an input file was specified. The input filename should be provided below:
@@ -21,4 +21,4 @@ other actions yet — this step only reads the file. Further steps will handle
 everything else.
 
 After reading the file, respond with exactly:
-<goto>2_GENERATE_BEADS_LIST.md</goto>
+<goto>2_EXPLORE_CODEBASE.md</goto>

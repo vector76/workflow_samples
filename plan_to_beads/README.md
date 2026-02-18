@@ -6,6 +6,21 @@ A Raymond workflow that transforms an implementation plan into a structured list
 of beads, iteratively reviews and refines that list until it converges, then
 creates all beads with their dependencies using the `bs` command.
 
+## Design principles
+
+**Each bead runs in a completely fresh Claude Code context window.** Beads have no
+memory of other beads and no knowledge from the plan_to_beads session — only files
+on disk. The workflow accounts for this in two ways:
+
+- **Upfront exploration:** before generating beads, the workflow explores the
+  codebase and embeds specific file paths and function references directly into each
+  bead's description, so beads don't have to rediscover them.
+- **Independent beads:** beads are designed to be self-contained units of work. A
+  bead can orient itself by reading the project files left by predecessors, just as
+  a developer would. Structured handoffs between beads (one bead writing a file for
+  the next to read) are a bad pattern and are actively discouraged — research belongs
+  in the plan_to_beads process, not spread across bead boundaries.
+
 ## Workflow
 
 ```
@@ -20,27 +35,39 @@ creates all beads with their dependencies using the `bs` command.
   read plan   <result>Input unspecified</result>
     |
     v
-2_GENERATE_BEADS_LIST
+2_EXPLORE_CODEBASE
+    |
+    v
+  existing codebase?
+    |              \
+   yes              no (greenfield)
+    |              /
+    v             /
+  explore integration points
+  (findings held in context)
+    \            /
+     v          /
+3_GENERATE_BEADS_LIST
     |
     v
   create bead_list.md
+  (Codebase Notes + Beads)
     |
     v
-3_REVIEW_FIX  <─────────────────┐
+4_REVIEW_FIX  <─────────────────┐
     |                            |
     v                            |
   review & fix issues            |
     |                            |
     v                            |
-4_CHECK_CONVERGENCE              |
+5_CHECK_CONVERGENCE              |
     |        \                   |
   fixes      no fixes            |
    made      (converged)         |
-    |           \                |
-    └───────────┘                |
+    └───────────────────────────┘
                 |
                 v
-           5_CREATE_BEADS
+           6_CREATE_BEADS
                 |
                 v
            create all beads
@@ -48,10 +75,7 @@ creates all beads with their dependencies using the `bs` command.
            update bead_list.md
                 |
                 v
-           6_VALIDATE
-                |
-                v
-           validate beads
+           7_VALIDATE
                 |
                 v
            <result>SUCCESS</result>
@@ -70,73 +94,75 @@ with `<result>Input unspecified</result>`.
 If the specified file does not exist or cannot be read, terminates with
 `<result>File not found: [filename]</result>`.
 
-Otherwise, reads the implementation plan from the specified file and proceeds to
-generate the bead list.
+Otherwise, reads the implementation plan and proceeds to codebase exploration.
 
-### 2_GENERATE_BEADS_LIST.md
+### 2_EXPLORE_CODEBASE.md
 
-Transforms the implementation plan into a structured markdown list of beads.
-Creates `bead_list.md` with:
-- All beads to be created
-- What work is included in each bead
-- Dependencies between beads
+Determines whether the plan involves an existing codebase or is greenfield.
 
-The list uses placeholder names initially; actual bead identifiers (like bd-xk2a3)
-are added later during creation.
+For greenfield projects, does nothing and stops immediately.
 
-### 3_REVIEW_FIX.md
+For plans involving an existing codebase, explores only the specific integration
+points the plan refers to — not a general survey. Identifies exact files, functions,
+conventions, and test locations. Findings are held in context and written into
+`bead_list.md` by the next step.
 
-Reviews bead_list.md against the original implementation plan for issues:
-- Missing beads or incomplete coverage
-- Incorrect or unclear dependencies
-- Dependencies that reference non-existent beads
-- Improper bead scope (too large or too small)
-- Any other errors or improvements
+### 3_GENERATE_BEADS_LIST.md
 
-Automatically fixes major and minor issues. "Not a bug" observations are optional
-and don't require fixing.
+Creates `bead_list.md` with two sections:
 
-### 4_CHECK_CONVERGENCE.md
+**Codebase Notes** (omitted for greenfield): a summary of exploration findings —
+integration points, patterns, test locations. This is a reference used during bead
+creation to make descriptions precise, not a handoff mechanism between beads.
 
-**Effort: low** (uses extended thinking at low effort for faster execution)
+**Beads**: each bead is a self-contained, independently executable unit of roughly
+30 minutes to 1 hour. Format:
 
-Decision point that examines the previous review to determine if fixes were made.
+```
+### bead-N (placeholder): [Title]
+**Work:** [specific description with file paths and function names]
+**Estimate:** ~X min
+**Dependencies:** [bead names, or "none"]
+```
 
-- If major or minor fixes were applied: loops back to 3_REVIEW_FIX for another
-  review cycle.
-- If nothing was fixed (everything is correct, or only "not a bug" observations):
-  proceeds to 5_CREATE_BEADS.
+### 4_REVIEW_FIX.md
 
-This convergence loop ensures high quality by iteratively refining the bead list
-until no further improvements are found.
+Reviews bead_list.md against the plan for two categories of issues:
 
-### 5_CREATE_BEADS.md
+**Coverage and structure:** missing beads, incorrect/missing dependencies, beads
+too small to justify or too large (>~2 hours) to not split.
+
+**Fresh-context and independence:** vague work descriptions that leave exploration
+to the bead (should use specifics from Codebase Notes); "research beads" that exist
+to gather information for later beads (a bad pattern — fold findings into the
+relevant bead descriptions or Codebase Notes, then remove the research bead);
+unnecessarily sequential dependencies that reflect information transfer rather than
+genuine ordering constraints.
+
+### 5_CHECK_CONVERGENCE.md
+
+**Effort: low**
+
+Decision point: if the previous review made fixes, loops back for another cycle.
+If nothing was fixed, the bead list has converged and proceeds to creation.
+
+### 6_CREATE_BEADS.md
 
 Creates all beads using the `bs` command in two steps:
 
-**Step 1:** Create all beads
-- For each bead in bead_list.md, creates it with appropriate title and description
-  from the implementation plan
-- Records the assigned bead identifier (e.g., bd-xk2a3)
-- Updates bead_list.md to include the identifier
+**Step 1:** For each bead, composes a self-contained description from the
+implementation plan, the bead's Work entry, and the Codebase Notes section.
+Creates the bead via `bs`, records the assigned identifier, updates bead_list.md.
 
-**Step 2:** Set up all dependencies
-- After ALL beads exist and identifiers are collected, establishes dependencies
-  between beads using the `bs` command
+**Step 2:** After all beads exist and identifiers are collected, establishes
+dependencies between beads using `bs`.
 
-This two-step approach ensures all bead IDs are available before setting up
-dependencies. After all beads are created and linked, proceeds to validation.
+### 7_VALIDATE.md
 
-### 6_VALIDATE.md
+Verifies all beads were created, identifiers match bead_list.md, and all
+dependencies are properly established.
 
-Post-creation validation step that verifies:
-- All beads from bead_list.md were created
-- Bead identifiers in bead_list.md match actual created beads
-- All specified dependencies were properly established
-
-Terminates with:
-- `<result>SUCCESS</result>` if validation passes
-- `<result>VALIDATION FAILED: ...</result>` if issues are found
+Terminates with `<result>SUCCESS</result>` or `<result>VALIDATION FAILED: ...</result>`.
 
 ## Usage
 
@@ -146,25 +172,6 @@ raymond plan_to_beads/1_START.md --input "my_plan.md"
 
 The workflow expects the input to be a filename (not file contents). The
 implementation plan should be in the same directory where raymond is executed.
-
-## Review Loop
-
-The 3_REVIEW_FIX / 4_CHECK_CONVERGENCE cycle forms an iterative refinement loop.
-Each pass through REVIEW_FIX examines the bead list and applies fixes. The
-CHECK_CONVERGENCE step determines if another review is needed based on whether
-fixes were made. The loop exits only when a review pass finds nothing to fix,
-ensuring high-quality output before bead creation begins.
-
-This pattern is similar to the bs_work workflow's review loop, ensuring thorough
-quality checking through iteration.
-
-## Context Management
-
-All states use `<goto>` transitions, preserving the Claude Code session context
-throughout the workflow. This allows later states to reference:
-- The original implementation plan
-- The evolution of bead_list.md through review cycles
-- The full history of what was created and validated
 
 ## Terminal States
 
