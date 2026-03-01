@@ -1,6 +1,6 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: 3_PROMPT.sh }
+  - { tag: goto, target: 3_PROMPT }
 ---
 Re-read the feature document (you have the filename from earlier in this
 conversation).
@@ -44,4 +44,4 @@ STOP after writing HUMAN_PROMPT.md. Do not modify the feature document yet —
 that happens in a later step.
 
 After writing HUMAN_PROMPT.md, respond with exactly:
-<goto>3_PROMPT.sh</goto>
+<goto>3_PROMPT</goto>
