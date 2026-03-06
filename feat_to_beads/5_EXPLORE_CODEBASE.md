@@ -22,5 +22,9 @@ For each area the plan mentions, identify:
 - Existing conventions to follow (error handling, test structure, naming patterns)
 - Precisely where new code will be inserted or what will be changed
 
+If you are discussing XML tags, as part of the subject matter, use "&lt;" and "&gt;" 
+in place of brackets to avoid confusing the orchestrator, which is going to be 
+scanning your output.
+
 STOP after exploring. Your findings will be incorporated into `bead_list.md` in the
 next step.
