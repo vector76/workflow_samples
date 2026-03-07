@@ -26,6 +26,9 @@ After ALL beads have been created and you have collected all their identifiers,
 set up the dependencies between beads using the `bs` command and the identifiers
 from the beads file.
 
+The `bs link` command is used to set up dependencies.  use `bs link --help` for 
+details on the syntax.
+
 **Step 3: Open the dependent beads**
 
 After ALL dependencies have been set up, flip each `not_ready` bead to `open`:

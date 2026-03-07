@@ -1,3 +1,30 @@
+
+With START as entry point (default):
+
+START  check bs setup before proceeding
+CLAIM  function call to WORK with return to DONE
+  WORK
+  REVIEW  call to DID_FIX with return to AGAIN_CHOICE
+    DID_FIX  result YES or NO (returns to AGAIN_CHOICE)
+  AGAIN_CHOICE  goto REVIEW or goto COMMIT
+  COMMIT  result GOOD or return PROBLEM (returns to DONE)
+DONE  reset to CLAIM or result
+
+
+With RUN_FOREVER as entry point (unlimited alternative)
+
+RUN_FOREVER  function call to START with return to OUTER_LOOP
+  START  check bs setup before proceeding
+  CLAIM  function call to WORK with return to DONE
+    WORK
+    REVIEW  call to DID_FIX with return to AGAIN_CHOICE
+      DID_FIX  result YES or NO (returns to AGAIN_CHOICE)
+    AGAIN_CHOICE  goto REVIEW or goto COMMIT
+    COMMIT  result GOOD or return PROBLEM (returns to DONE)
+  DONE  reset to CLAIM or result
+OUTER_LOOP  (states CLAIM or DONE may return here)  reset to RUN_FOREVER
+
+
 **START.sh**
 Run `bs list` — if it produces an error "BS_TOKEN is required" or if it can't 
 talk to the server, then `<result>NOT CONFIGURED</result>`
