@@ -11,6 +11,15 @@ Basics:
 - `bs add "title" --description "description here"` -- create a bead (see `bs add --help` for more detail)
 - `bs link <id> --blocked-by bd-1234,bd-xyza` -- bead <id> has dependencies on bd-1234 and bd-xyza
 
+**Step 0: Check for partial creation**
+Before starting, perform 
+`bs list --status open,not_ready,in_progress`
+to check for a possible aborted previous run.
+
+Also check the bm_beads.md file for possible bead IDs.  Use this information to 
+determine which beads still need to be created.  Don't create them a second 
+time.
+
 **Step 1: Create all beads**
 
 For each bead in the beads file `bm_beads.md`:
@@ -52,6 +61,13 @@ Read `bm_feat_id.txt` to get the feature ID.
 
 Then for every bead, do this command:
 `bm register-bead <feature-id> <bead-id>`
+
+Do this for each bead whether or not they had been created previously (from 
+step 0 above).
+
+After all beads have been registered with the above command, do this to notify
+the manager that no more beads are coming.
+`bm beads-done <feature-id>`
 
 STOP after completing all four steps. Do not validate yet — that happens in a
 later step.

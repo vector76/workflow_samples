@@ -2,4 +2,5 @@
 
 # later might change this to a function call with a return that loops.  For now 
 # handles only one event.
-echo "<goto>POLL</goto>"
+#echo "<goto>POLL</goto>"
+echo "<function return=\"OUTER_LOOP\">POLL</function>"

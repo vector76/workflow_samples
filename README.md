@@ -10,52 +10,53 @@ Each workflow has its own README with full state descriptions, context managemen
 
 ### [bs_work](bs_work/) — Beads Server Work Loop
 
-Claims tasks from a [beads server](https://github.com/vector76/beads_server), implements them one at a time with a self-review loop, and commits. Loops until the backlog is empty.
+Claims tasks from a [beads server](https://github.com/vector76/beads_server), implements them one at a time with a self-review loop, then commits and pushes. Loops until the backlog is empty. Also supports a `RUN_FOREVER` entry point that never terminates on its own — it resets back to the top after each task or error.
 
 ```
-START: check for in-progress work, or claim a ready task
+START: check bs configuration
+CLAIM: check for in-progress task, or claim a ready one
   if no tasks → result DONE
-IMPL: implement the task
-CHECK_FIX: self-review the work
-NO_FIX: did the review fix anything?
-  if yes → goto CHECK_FIX
-COMMIT: commit, push, close the task
-  if more tasks → reset to START
-  else → result SUCCESS
+WORK: implement the task
+REVIEW: self-review with fresh eyes
+  call DID_FIX → AGAIN_CHOICE:
+    if fixed → goto REVIEW
+COMMIT: stage, commit, push; mark task complete
+  if problem → result PROBLEM
+DONE: if GOOD → reset to CLAIM
+      else → result
 ```
 
-### [bs_work_multi](bs_work_multi/) — Parallel Beads Server Work Loop
+### [bs_work_rebase](bs_work_rebase/) — Beads Server Work Loop with Rebase
 
-A variant of `bs_work` designed for multiple independent Raymond instances running in parallel, each in its own checkout. Instances coordinate only at `git push` time via a rebase loop with conflict resolution, re-testing, and a retry cap.
+A single-agent variant of `bs_work` that handles push rejection with a rebase loop. When `git push` is rejected, the agent fetches, rebases, resolves conflicts (if any), re-tests, and retries. Bail-out logic unclaimss the task after too many failed attempts.
 
 ```
-START: initial setup
-CLAIM_TASK: claim a ready task from beads server
-  if nothing ready → CHECK_DONE (poll loop)
-IMPLEMENT: implement the task
-CHECK_FIX: self-review the work
-NO_FIX: did the review fix anything?
-  if yes → goto CHECK_FIX
-COMMIT: commit locally
-  if unsuccessful → BAIL_OUT
-PUSH_GATE: check retry counter
-  if over cap → BAIL_OUT
-  call FETCH_REBASE (isolated session):
-    rebase onto origin/main
-    if conflicts → RESOLVE_CONFLICTS
-    if rebased → RE_TEST
-    returns ok, REWORK, or BAIL
-PUSH: inspect call result
-  if ok → try git push
-    if rejected → goto PUSH_GATE (retry)
-    if success → CLOSE_TASK → reset to CLAIM_TASK
-  if REWORK → RUN_TESTS → CHECK_FIX (re-enter review loop)
-  if BAIL → BAIL_OUT
-BAIL_OUT: discard work, unclaim task → reset to CLAIM_TASK
-CHECK_DONE: poll for ready/open tasks
-  if ready found → reset to CLAIM_TASK
-  if open tasks exist → sleep, poll again
-  if nothing open → result DONE
+START: check bs configuration
+CLAIM: check for in-progress task, or claim a ready one
+  if no tasks → result DONE
+WORK: implement the task
+REVIEW: self-review with fresh eyes
+  call DID_FIX → AGAIN_CHOICE:
+    if fixed → goto REVIEW
+COMMIT: stage and commit locally (no push)
+PUSH_ATTEMPT: try git push
+  if success → mark complete; result GOOD
+  if rejected → REBASE
+REBASE: git fetch + rebase
+  if clean → RETEST
+  if conflicts → RESOLVE
+RESOLVE: LLM resolves conflicts (3-attempt cap)
+  if resolved → RETEST
+  if unresolvable → BAIL_OUT
+RETEST: run tests
+  if pass → PUSH_ATTEMPT
+  if fail → REWORK
+REWORK: fix test failures (3-attempt cap)
+  if fixed → COMMIT
+  if stuck → BAIL_OUT
+BAIL_OUT: hard reset, unclaim task; result BAIL_OUT
+DONE: if GOOD or BAIL_OUT → reset to CLAIM
+      else → result
 ```
 
 ### [taskmd_work](taskmd_work/) — TASK.md File Work Loop
@@ -80,7 +81,7 @@ COMMIT: rename task file, commit, push
 
 ### [feat_develop](feat_develop/) — Interactive Feature Document Elaboration
 
-A human-in-the-loop workflow that collaboratively elaborates a feature document. Starting from a brief description — as short as a single sentence — the agent analyzes the codebase, identifies gaps and ambiguities, makes concrete assumptions, and proposes them for human review. The human approves, overrides, or adds information, and the loop continues until the document is complete and well-specified.
+A human-in-the-loop workflow that collaboratively elaborates a feature document. Starting from a brief description, the agent analyzes the codebase, identifies gaps and ambiguities, makes concrete assumptions, and proposes them for human review via a file-based prompt (`HUMAN_PROMPT.md`). The human removes a `<!-- COMPOSING -->` marker to signal their response is ready. Loops until the document is complete.
 
 ```
 START: read feature document from --input file
@@ -94,19 +95,44 @@ RESPONSE: apply human feedback, update feature document in place
   → goto ANALYZE (loop)
 ```
 
-### [feat_plan](feat_plan/) — Feature Document to Implementation Plan
+### [feat_dev_tg](feat_dev_tg/) — Interactive Feature Document Elaboration via Telegram
 
-Takes a feature document and produces a detailed, high-level implementation plan. Researches the relevant parts of the codebase to ground the plan in the existing architecture, then iteratively reviews and refines it until no further improvements are found. The plan focuses on strategy, sequencing, and dependencies — not code.
+A variant of `feat_develop` that uses `tgask` to send and receive human input over Telegram instead of polling a file. Automatically picks up `underspec_<name>.md` files, refines them collaboratively, and renames the completed document to `fullspec_<name>.md`. Loops back to find the next underspec file when done.
 
 ```
-START: read feature document from --input file, derive plan filename ([feature]_plan.md)
-  if no input → result error
-DRAFT_PLAN: re-read feature doc, research relevant codebase, write plan file
-REVIEW_FIX: re-read plan with fresh eyes, fix missing steps / dependency
-            violations / coverage gaps / over- or under-specification
-CHECK_CONVERGENCE: did the review fix anything?
-  if yes → goto REVIEW_FIX
-  if no → result [feature]_plan.md
+START: find an underspec_<name>.md with no in_progress_ or fullspec_ counterpart
+  if none found → result DONE
+  copy to in_progress_<name>.md; call ANALYZE
+ANALYZE: expand document, write questions to HUMAN_PROMPT.md
+PROMPT: (shell) run tgask to send prompt and receive response
+  if response is "done" only → CLEANUP
+  if last line is "done" → FINAL_RESPONSE
+  else → RESPONSE
+RESPONSE: update in_progress file from human response → goto PROMPT (loop)
+FINAL_RESPONSE: apply final response, → CLEANUP
+CLEANUP: rename in_progress_ → fullspec_, delete underspec_; result DONE
+DONE: (shell) reset to START
+```
+
+### [feat_to_beads](feat_to_beads/) — Feature Document to Beads
+
+Takes a feature specification document and produces a set of implementation beads. Runs in two phases separated by a context reset: Phase 1 drafts and refines an implementation plan; Phase 2 explores codebase integration points, generates a bead list, refines it, then creates all beads with dependencies.
+
+```
+START: validate --input file; abort if plan.md or bead_list.md already exist
+DRAFT_PLAN: read feature doc, explore codebase, write plan.md
+REVIEW_PLAN: review and fix plan.md
+CHECK_PLAN: did the review fix anything?
+  if yes → goto REVIEW_PLAN
+  if no → [context reset]
+EXPLORE_CODEBASE: read plan.md, explore integration points
+GENERATE_BEADS_LIST: write bead_list.md
+REVIEW_BEADS: review and fix bead_list.md
+CHECK_BEADS: did the review fix anything?
+  if yes → goto REVIEW_BEADS
+CREATE_BEADS: create all beads, set up dependencies
+VALIDATE: verify all beads created correctly
+  → result SUCCESS or VALIDATION FAILED
 ```
 
 ### [plan_to_beads](plan_to_beads/) — Plan to Beads Conversion
@@ -125,17 +151,26 @@ VALIDATE: verify all beads and dependencies were created
   → result SUCCESS or VALIDATION FAILED
 ```
 
-### [human_prd](human_prd/) — Interactive PRD Refinement
+### [fullspec_to_beads](fullspec_to_beads/) — Fullspec Document to Beads
 
-An interactive loop where the agent drafts a PRD (`PRD.md`) and pauses for human input via `HUMAN_PROMPT.md`. The human removes a `<!-- COMPOSING -->` marker to signal their response is ready.
+Similar to `feat_to_beads` but auto-detects `fullspec_<name>.md` files in the filesystem (the output format of `feat_dev_tg`) rather than taking an `--input` argument. Writes `plan_<name>.md` and `beads_<name>.md` alongside the source file. Loops back to find the next eligible fullspec when done.
 
 ```
-START: read PRD.md (if exists), write questions to HUMAN_PROMPT.md
-PROMPT: wait for human to remove <!-- COMPOSING --> marker
-  if human wrote a response → continue
-  if human left file empty → CLEANUP → result DONE
-RESPONSE: read human input, refine PRD.md
-  → reset to START
+START: find a fullspec_<name>.md with no plan_ or beads_ counterpart
+  if none → result DONE
+  call DRAFT_PLAN (with fullspec file as input)
+DRAFT_PLAN: read fullspec, explore codebase, write plan_<name>.md
+REVIEW_PLAN: review and fix plan
+  call PLAN_DID_FIX → PLAN_AGAIN_CHOICE:
+    if fixed → goto REVIEW_PLAN
+TRANSITION: reset context; goto EXPLORE_CODEBASE with plan file as input
+EXPLORE_CODEBASE: read plan, explore integration points; write beads_<name>.md
+REVIEW_BEADS: review and fix bead list
+  call BEADS_DID_FIX → BEADS_AGAIN_CHOICE:
+    if fixed → goto REVIEW_BEADS
+CREATE_BEADS: create all beads, set up dependencies
+VALIDATE: verify beads → result SUCCESS or VALIDATION FAILED
+DONE: (shell) reset to START
 ```
 
 ## Raymond Concepts Used
@@ -145,41 +180,56 @@ These samples exercise several key Raymond features:
 | Feature | Description | Used In |
 |---------|-------------|---------|
 | `<goto>` | Continue in the same context (session preserved) | All workflows |
-| `<reset>` | Discard context and start fresh | `bs_work`, `bs_work_multi`, `taskmd_work`, `human_prd` |
+| `<reset>` | Discard context and start fresh | `bs_work`, `bs_work_rebase`, `taskmd_work`, `feat_dev_tg`, `fullspec_to_beads` |
 | `<result>` | Return a value / terminate the agent | All workflows |
-| `<call>` | Invoke a sub-workflow and return the result | `taskmd_work` (review loop), `bs_work_multi` (rebase loop) |
-| `<call return="...">` | Specify a return destination for the call result | `taskmd_work`, `bs_work_multi` |
-| Shell script states (`.sh`) | Zero-cost deterministic control flow | `taskmd_work`, `bs_work_multi`, `feat_develop`, `human_prd` |
+| `<call>` | Invoke a sub-workflow and return the result | `taskmd_work`, `bs_work`, `bs_work_rebase`, `feat_to_beads`, `fullspec_to_beads` |
+| `<call return="...">` | Specify a return destination for the call result | `bs_work`, `bs_work_rebase`, `taskmd_work`, `feat_to_beads`, `fullspec_to_beads` |
+| `<function>` | Call a sub-workflow like a function call with input | `bs_work`, `bs_work_rebase`, `feat_dev_tg`, `fullspec_to_beads` |
+| Shell script states (`.sh`) | Zero-cost deterministic control flow | All workflows |
 | YAML frontmatter | Declare allowed transitions and model selection | All `.md` states |
 | `model: sonnet` | Use a cheaper model for simple evaluation steps | `taskmd_work` |
-| `effort: low` | Use extended thinking at low effort for fast decisions | `plan_to_beads`, `feat_plan` |
-| `{{result}}` / `RAYMOND_RESULT` | Template variable for receiving return values | `taskmd_work`, `bs_work_multi`, `feat_develop`, `feat_plan`, `plan_to_beads` |
+| `effort: low` | Use extended thinking at low effort for fast decisions | `feat_to_beads`, `plan_to_beads` |
+| `{{result}}` / `RAYMOND_RESULT` | Template variable for receiving return values | `bs_work`, `bs_work_rebase`, `taskmd_work`, `feat_dev_tg`, `feat_to_beads`, `fullspec_to_beads`, `plan_to_beads` |
 
 ## Running a Workflow
 
 ```bash
-# Start a workflow by pointing Raymond at the first state file
-raymond bs_work/1_START.md
-raymond bs_work_multi/1_START.md
+# Beads workflows
+raymond bs_work/START.sh
+raymond bs_work/RUN_FOREVER.sh          # never-terminating variant
+raymond bs_work_rebase/START.sh
+
+# Task file workflow
 raymond taskmd_work/1_START.md
+
+# Feature elaboration (file-based human prompts)
 raymond feat_develop/1_START.md --input "my_feature.md"
-raymond feat_plan/1_START.md --input "my_feature.md"
+
+# Feature elaboration (Telegram-based human prompts)
+raymond feat_dev_tg/START.sh
+
+# Feature to beads (single workflow)
+raymond feat_to_beads/1_START.md --input "my_feature.md"
+
+# Plan to beads
 raymond plan_to_beads/1_START.md --input "my_plan.md"
-raymond human_prd/1_START.md
+
+# Fullspec to beads (auto-detects fullspec_*.md files)
+raymond fullspec_to_beads/START.sh
 
 # With options
 raymond taskmd_work/1_START.md --model sonnet --budget 5.00
-raymond bs_work/1_START.md --dangerously-skip-permissions
+raymond bs_work_rebase/START.sh --dangerously-skip-permissions
 ```
 
 ## Prerequisites
 
 - [Raymond](https://github.com/anthropics/raymond) installed and on your PATH
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed (Raymond invokes it under the hood)
-- For `bs_work` / `bs_work_multi`: the `bs` CLI from [Beads Server](https://github.com/vector76/beads_server) installed and configured
-- For `bs_work_multi`: separate directory with its own git clone (or worktree) per instance
+- For `bs_work` / `bs_work_rebase`: the `bs` CLI from [Beads Server](https://github.com/vector76/beads_server) installed and configured
 - For `taskmd_work`: one or more `TASK.md` / `TASK1.md` / `TASK2.md` files in the working directory
 - For `feat_develop`: a feature document file to pass via `--input`; `inotifywait` available (from `inotify-tools` on Linux) for human-input polling
-- For `feat_plan`: a feature document file to pass via `--input`
-- For `plan_to_beads`: an implementation plan file to pass via `--input`
-- For `human_prd`: `inotifywait` available (from `inotify-tools` on Linux)
+- For `feat_dev_tg`: `tgask` installed and configured for Telegram interaction; `underspec_<name>.md` files in the working directory
+- For `feat_to_beads`: a feature document file to pass via `--input`; `bs` CLI configured
+- For `plan_to_beads`: an implementation plan file to pass via `--input`; `bs` CLI configured
+- For `fullspec_to_beads`: `fullspec_<name>.md` files in the working directory (e.g. produced by `feat_dev_tg`); `bs` CLI configured
