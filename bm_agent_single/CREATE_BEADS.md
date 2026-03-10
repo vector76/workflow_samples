@@ -2,8 +2,8 @@
 allowed_transitions:
   - { tag: call, target: VALIDATE, return: CLEANUP }
 ---
-Now create all the beads specified in the beads file 
-`.bm/{{result}}/bm_beads.md` using the `bs` command.
+Now create all the beads specified in the beads file `bm_beads.md` using the 
+`bs` command.
 
 Use `bs --help` to get more information on the `bs` command.
 
@@ -16,25 +16,26 @@ Before starting, perform
 `bs list --status open,not_ready,in_progress`
 to check for a possible aborted previous run.
 
-Also check the `.bm/{{result}}/bm_beads.md` file for possible bead IDs.  Use
-this information to determine which beads still need to be created.  Don't
-create them a second time.
+Also check the bm_beads.md file for possible bead IDs.  Use this information to 
+determine which beads still need to be created.  Don't create them a second 
+time.
 
 **Step 1: Create all beads**
 
-For each bead in the beads file `.bm/{{result}}/bm_beads.md`:
+For each bead in the beads file `bm_beads.md`:
 1. Compose the bead's full description using the plan file, the bead's Work
    description, and the Codebase Notes section of the beads file (if present).
    The description is the complete prompt the bead receives — it runs in a fresh
    context with no memory of other beads. Make it self-contained: include specific
    file paths and function names so the bead can get to work immediately.
 2. Create the bead using the `bs` command:
-   - Create all beads with `--status not_ready` to prevent them from being 
-     claimed before its prerequisites are wired up:
-       `bs add --status not_ready ...`
+   - If the bead has **no dependencies**: create it normally (open by default)
+   - If the bead **has dependencies**: create it with `--status not_ready` to
+     prevent it from being claimed before its prerequisites are wired up:
+     `bs add --status not_ready ...`
 3. Note the assigned bead identifier (e.g., bd-xk2a3)
-4. Update the beads file `.bm/{{result}}/bm_beads.md` to include the assigned
-   identifier next to that bead
+4. Update the beads file `bm_beads.md` to include the assigned identifier next 
+   to that bead
 
 **Step 2: Set up all dependencies**
 
@@ -56,7 +57,7 @@ beads.)
 
 **Step 4: Register all beads with backlog manager (bm)**
 
-Read `.bm/{{result}}/bm_feat_id.txt` to get the feature ID.
+Read `bm_feat_id.txt` to get the feature ID.
 
 Then for every bead, do this command:
 `bm register-bead <feature-id> <bead-id>`

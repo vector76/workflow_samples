@@ -2,11 +2,11 @@
 allowed_transitions:
   - { tag: call, target: PLAN_DID_FIX, return: PLAN_AGAIN_CHOICE }
 ---
-Re-read the plan file `.bm/{{result}}/bm_plan.md` and the feature definition
-document `.bm/{{result}}/bm_feature.md` carefully — approach the plan as if you
-are seeing it for the first time.
+Re-read the plan file `bm_plan.md` and the feature definition document 
+`bm_feature.md` carefully — approach the plan as if you are seeing it for the 
+first time.
 
-(We are reviewing the plan, not the feature definition, which we are taking as
+(We are reviewing the plan, not the feature definition, which we are taking as 
 given.)
 
 **Scope reminder: this is a planning workflow, not an implementation workflow.**

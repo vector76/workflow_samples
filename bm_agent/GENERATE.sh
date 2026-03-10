@@ -2,10 +2,13 @@
 
 # $RAYMOND_RESULT contains the feature id
 result=$(bm fetch "$RAYMOND_RESULT")
-echo "$result" | jq -r '.feature_description' > "bm_feature.md"
-echo "$RAYMOND_RESULT" > "bm_feat_id.txt"
+
+mkdir -p ".bm/$RAYMOND_AGENT_ID"
+
+echo "$result" | jq -r '.feature_description' > ".bm/$RAYMOND_AGENT_ID/bm_feature.md"
+echo "$RAYMOND_RESULT" > ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt"
 
 # transition to generating state
 bm start-generate "$RAYMOND_RESULT"
 
-echo "<goto>GENERATE_DRAFT_PLAN</goto>"
+echo "<goto input=\"$RAYMOND_AGENT_ID\">GENERATE_DRAFT_PLAN</goto>"

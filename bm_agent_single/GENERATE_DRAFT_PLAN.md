@@ -1,8 +1,8 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: REVIEW_PLAN, input: "{{result}}" }
+  - { tag: goto, target: REVIEW_PLAN }
 ---
-Re-read the feature document `.bm/{{result}}/bm_feature.md`.
+Re-read the feature document `bm_feature.md`.
 
 Then explore the parts of the codebase relevant to this feature. The codebase
 may be large — use grep, glob, and targeted reads to find what is pertinent.
@@ -19,7 +19,7 @@ implementer will read the same codebase themselves. Keep every statement in the
 plan at the level of strategy and intent.
 
 Based on the feature document and your research, write a detailed, high-level
-implementation plan to `.bm/{{result}}/bm_plan.md`.
+implementation plan to `bm_plan.md`.
 
 The plan must be:
 - **Thorough**: every meaningful aspect of the feature should be addressed —
@@ -41,6 +41,5 @@ what prior phases must have delivered, and what this phase delivers for
 subsequent phases. Adapt this structure to the feature — a simple phase may
 need less scaffolding than a complex one.
 
-STOP after writing `.bm/{{result}}/bm_plan.md`.  Do not begin implementing or
-doing anything else besides generating the plan document — that happens in a
-later step.
+STOP after writing `bm_plan.md`.  Do not begin implementing or doing anything 
+else besides generating the plan document — that happens in a later step.

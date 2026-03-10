@@ -2,9 +2,9 @@
 allowed_transitions:
   - { tag: goto, target: DIALOG_FINALIZE }
 ---
-The feature description you are working on is described in 
-`.bm/{{result}}/bm_feature.md`.  Read that file now.  You're collaborating with
-the human to get a good clean feature definition to then guide implementation.
+The feature description you are working on is described in `bm_feature.md` (in 
+the project root).  Read that file now.  You're collaborating with the human to
+get a good clean feature definition to then guide implementation.
 
 Analyze the feature document for:
 - **Errors or inconsistencies**: anything that contradicts itself or conflicts
@@ -28,10 +28,10 @@ built. A little bit of mention of implementation detail is okay but don't be
 over-specifying the implementation.  The implementer is smart and can figure it
 out.
 
-Write your questions/assumptions to `.bm/{{result}}/bm_quest.md`, replacing the
-entire file if it exists. Lead with significant issues, then list assumptions,
-then minor notes. If the document is already complete and well-specified with
-no meaningful gaps, say so at the top.
+Write your questions/assumptions to `bm_quest.md` (in the project root), 
+replacing the entire file if it exists. Lead with significant issues, then 
+list assumptions, then minor notes. If the document is already complete and 
+well-specified with no meaningful gaps, say so at the top.
 
-STOP after writing `.bm/{{result}}/bm_quest.md`. Do not start implementation or
-do anything else.  That comes later after the human reviews your feedback.
+STOP after writing `bm_quest.md`. Do not start implementation or do anything 
+else.  That comes later after the human reviews your feedback.

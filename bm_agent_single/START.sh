@@ -3,5 +3,5 @@
 if [ -f "STOP_REQUESTED" ]; then
     echo "<result>STOP REQUESTED</result>"
 else
-    echo "<reset>CLAIM</reset>"
+    echo "<function return=\"OUTER_LOOP\">POLL</function>"
 fi

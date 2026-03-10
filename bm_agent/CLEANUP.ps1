@@ -1,4 +1,10 @@
-Remove-Item -Force -ErrorAction SilentlyContinue bm_feature.md, bm_prev_quest.md, bm_user.md, bm_quest.md, bm_feat_id.txt, bm_plan.md, bm_beads.md
+if (-not $env:RAYMOND_AGENT_ID) {
+    # prevent over-zealous delete if we somehow lost the agent ID
+    Write-Error "Error: RAYMOND_AGENT_ID is not set"
+    exit 1
+}
 
-# Write-Output "<reset>START</reset>"
+Remove-Item -Recurse -Force ".bm/$($env:RAYMOND_AGENT_ID)"
+
+# forked worker terminates
 Write-Output "<result>$($env:RAYMOND_RESULT)</result>"

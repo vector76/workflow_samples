@@ -1,6 +1,12 @@
 #!/bin/bash
 
-rm -f bm_feature.md bm_prev_quest.md bm_user.md bm_quest.md bm_feat_id.txt bm_plan.md bm_beads.md
+if [[ -z "$RAYMOND_AGENT_ID" ]]; then
+    # prevent over-zealous delete if we somehow lost the feature ID
+    echo "Error: RAYMOND_AGENT_ID is not set" >&2
+    exit 1
+fi
 
-# echo "<reset>START</reset>"
+rm -rf ".bm/$RAYMOND_AGENT_ID"
+
+# forked worker terminates
 echo "<result>$RAYMOND_RESULT</result>"

@@ -1,14 +1,13 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: REVIEW_BEADS, input: "{{result}}" }
+  - { tag: goto, target: REVIEW_BEADS }
 ---
-The feature definition is in `.bm/{{result}}/bm_feature.md`.  The plan file to
-work from is `.bm/{{result}}/bm_plan.md`.  Read them to understand the feature
-and implementation plan. The beads filename (our output) is 
-`.bm/{{result}}/bm_beads.md`.
+The feature definition is in `bm_feature.md`.  The plan file to work from is 
+`bm_plan.md`.  Read them to understand the feature and implementation plan. 
+The beads filename (our output) is `bm_beads.md`.
 
-The feature and plan are inputs and not to be changed, only 
-`.bm/{{result}}/bm_beads.md` is to be written.
+The feature and plan are inputs and not to be changed, only `bm_beads.md` is to
+be written.
 
 Determine whether the plan involves modifying an existing codebase or if it's
 creating a new greenfield project.
@@ -32,7 +31,7 @@ no access to anything except files on disk.  Bead implementation has full
 access to the codebase, but bead descriptions must be self-contained as far as
 not referring to other beads.
 
-Create `.bm/{{result}}/bm_beads.md` with two sections:
+Create `bm_beads.md` with two sections:
 
 **Section 1 — Codebase Notes** (omit entirely for greenfield projects):
 If you explored an existing codebase, summarize the findings here. This is a
