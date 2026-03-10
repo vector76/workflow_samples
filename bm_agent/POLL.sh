@@ -9,6 +9,8 @@ if [ "$action" = "dialog_step" ]; then
     echo "<goto input=\"$feature_id\">DIALOG_STEP</goto>"
 elif [ "$action" = "generate" ]; then
     echo "<goto input=\"$feature_id\">GENERATE</goto>"
+elif [ "$action" = "timeout" ]; then
+    echo "<result>Timeout, try again</result>"
 else
     echo "<result>Unrecognized poll result</result>"
 fi

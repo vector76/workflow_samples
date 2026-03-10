@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# later might change this to a function call with a return that loops.  For now 
-# handles only one event.
-#echo "<goto>POLL</goto>"
-echo "<function return=\"OUTER_LOOP\">POLL</function>"
+if [ -f "STOP_REQUESTED" ]; then
+    echo "<result>STOP REQUESTED</result>"
+else
+    echo "<function return=\"OUTER_LOOP\">POLL</function>"
+fi
