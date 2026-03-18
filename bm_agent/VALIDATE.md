@@ -4,7 +4,7 @@ allowed_transitions:
 ---
 Validate that all beads were created correctly:
 
-1. Use `bs` commands to list and inspect the beads that were just created
+1. Use `bm` commands to list and inspect the beads that were just created
 2. Compare the created beads against the beads file to ensure all beads were created
 3. Verify that all dependencies specified in the beads file have been properly
    established between the beads

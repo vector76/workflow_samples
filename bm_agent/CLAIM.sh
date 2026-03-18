@@ -3,7 +3,7 @@
 # claim blocks forever until result is available, and when it's available, 
 # it's exclusively allocated to us so another 'bm claim' won't return the same
 # item while we're working on it
-result=$(bm claim)
+result=$(bm claim-feature)
 action=$(echo "$result" | jq -r '.action')
 feature_id=$(echo "$result" | jq -r '.feature_id')
 direct_to_bead=$(echo "$result" | jq -r '.direct_to_bead // false')

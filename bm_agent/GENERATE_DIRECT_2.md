@@ -5,7 +5,7 @@ allowed_transitions:
 Read the feature document `.bm/{{result}}/bm_feature.md`.
 
 Come up with a title, and then create a bead using the syntax here:
-- `bs add "title" --description "description here"` -- create a bead (see `bs add --help` for more detail)
+- `bm add "title" --description "description here"` -- create a bead (see `bm add --help` for more detail)
 
 The bead description should be the feature document verbatim.
 
