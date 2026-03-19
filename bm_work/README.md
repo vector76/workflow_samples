@@ -1,21 +1,22 @@
 
 With START as entry point (default):
 
-START.sh  check bm setup before proceeding
-CLAIM.sh  function call to WORK with return to DONE
-  WORK
-  REVIEW  call to DID_FIX with return to AGAIN_CHOICE
-    DID_FIX  result YES or NO (returns to AGAIN_CHOICE)
-  AGAIN_CHOICE.sh  goto REVIEW or goto COMMIT
-  COMMIT  goto PUSH_ATTEMPT or goto BAIL_OUT
-  PUSH_ATTEMPT.sh  result GOOD or goto REBASE
-  REBASE.sh  goto RETEST (clean) or goto RESOLVE (conflicted)
-  RESOLVE  goto RETEST or goto BAIL_OUT (too many attempts)
-  RETEST  goto PUSH_ATTEMPT or goto REWORK
-  REWORK  goto COMMIT or goto BAIL_OUT (too many attempts)
-  BAIL_OUT.sh  hard reset, mark bead unclaimed, return BAIL_OUT (returns to DONE)
-DONE.sh  reset to CLAIM or result
-
+RUN_FOREVER.sh  function call to START with return to OUTER_LOOP
+  START.sh  check bm setup before proceeding
+  CLAIM.sh  function call to WORK with return to DONE
+    WORK
+    REVIEW  call to DID_FIX with return to AGAIN_CHOICE
+      DID_FIX  result YES or NO (returns to AGAIN_CHOICE)
+    AGAIN_CHOICE.sh  goto REVIEW or goto COMMIT
+    COMMIT  goto PUSH_ATTEMPT or goto BAIL_OUT
+    PUSH_ATTEMPT.sh  result GOOD or goto REBASE
+    REBASE.sh  goto RETEST (clean) or goto RESOLVE (conflicted)
+    RESOLVE  goto RETEST or goto BAIL_OUT (too many attempts)
+    RETEST  goto PUSH_ATTEMPT or goto REWORK
+    REWORK  goto COMMIT or goto BAIL_OUT (too many attempts)
+    BAIL_OUT.sh  hard reset, mark bead unclaimed, return BAIL_OUT (returns to DONE)
+  DONE.sh  reset to CLAIM or result
+OUTER_LOOP.sh  reset to RUN_FOREVER
 
 
 **START.sh**
