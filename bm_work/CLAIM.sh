@@ -19,6 +19,7 @@ for attempt in 1 2 3; do
     fi
 
     if bm claim "$task_id" >/dev/null 2>&1; then
+        git pull
         echo "<function return=\"DONE\" input=\"$task_id\">WORK</function>"
         exit 0
     fi

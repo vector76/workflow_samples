@@ -23,6 +23,7 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 
     $null = bm claim $taskId 2>&1
     if ($LASTEXITCODE -eq 0) {
+        git pull
         Write-Output "<function return=`"DONE`" input=`"$taskId`">WORK</function>"
         exit 0
     }
