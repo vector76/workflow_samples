@@ -1,7 +1,7 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: PUSH_ATTEMPT.sh }
-  - { tag: goto, target: REWORK.md }
+  - { tag: goto, target: PUSH_ATTEMPT }
+  - { tag: goto, target: REWORK }
 ---
 A rebase has just completed, incorporating upstream changes into our work.
 The rebase may have introduced subtle incompatibilities even if there were

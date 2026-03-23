@@ -1,7 +1,7 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: RETEST.md }
-  - { tag: goto, target: BAIL_OUT.sh }
+  - { tag: goto, target: RETEST }
+  - { tag: goto, target: BAIL_OUT }
 ---
 A `git rebase` has encountered merge conflicts.  Your job is to resolve them.
 

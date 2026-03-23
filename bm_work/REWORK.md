@@ -1,7 +1,7 @@
 ---
 allowed_transitions:
-  - { tag: goto, target: COMMIT.md }
-  - { tag: goto, target: BAIL_OUT.sh }
+  - { tag: goto, target: COMMIT }
+  - { tag: goto, target: BAIL_OUT }
 ---
 Tests are failing after a rebase.  Diagnose and fix the failures.  The
 problem may be an incompatibility between the upstream changes and our
