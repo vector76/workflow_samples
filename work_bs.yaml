@@ -3,13 +3,13 @@ states:
     timeout: 4000
     sh: |
       #!/bin/bash
-      bm wait-ready --timeout 3600
+      bs wait-ready --timeout 3600
       echo "<function return=\"START\">ONCE</function>"
   ONCE:
     sh: |
       #!/bin/bash
-      
-      if bm list >/dev/null 2>&1; then
+
+      if bs list >/dev/null 2>&1; then
           echo "<goto>CLAIM</goto>"
       else
           sleep 10
@@ -18,36 +18,36 @@ states:
   CLAIM:
     sh: |
       #!/bin/bash
-      
+
       # Check for an existing in-progress task from a previous run
-      task_id=$(bm mine 2>/dev/null | jq -r '.beads[0].id // empty' 2>/dev/null)
-      
+      task_id=$(bs mine 2>/dev/null | jq -r '.beads[0].id // empty' 2>/dev/null)
+
       if [ -n "$task_id" ]; then
           echo "<function return=\"DONE\" input=\"$task_id\">WORK</function>"
           exit 0
       fi
-      
+
       # No in-progress task — try to claim one
-      task_id=$(bm list --ready 2>/dev/null | jq -r '.beads[0].id // empty' 2>/dev/null)
-      
+      task_id=$(bs list --ready 2>/dev/null | jq -r '.beads[0].id // empty' 2>/dev/null)
+
       if [ -z "$task_id" ]; then
           echo "<result>DONE</result>"
           exit 0
       fi
-      
-      if bm claim "$task_id" >/dev/null 2>&1; then
+
+      if bs claim "$task_id" >/dev/null 2>&1; then
           git pull
           echo "<function return=\"DONE\" input=\"$task_id\">WORK</function>"
           exit 0
       fi
-      
+
       echo "<result>CLAIM FAILED</result>"
   WORK:
     prompt: |-
       Your task ID is `{{input}}`. Start by getting the full task description:
-      
-          bm show {{input}}
-      
+
+          bs show {{input}}
+
       Then implement the task. Do not stage, commit, or review the code yet — those
       happen in later steps.
     allowed_transitions:
@@ -59,7 +59,7 @@ states:
       unhandled edge cases, or places where there is a clearly better approach. Run
       any relevant tests. Fix anything you find. There may be nothing wrong — the
       point is to check.
-      
+
       Do not stage or commit yet — that happens in a later step.
     allowed_transitions:
       - tag: call
@@ -69,7 +69,7 @@ states:
     prompt: |
       Look at the review that just completed. Did it result in any actual code changes
       or fixes?
-      
+
       - If anything was changed or fixed (even something minor) respond with `<result>YES</result>`
       - If nothing was changed (the review found nothing worth fixing, or only made
         observations without modifying anything) respond with  `<result>NO</result>`
@@ -81,7 +81,7 @@ states:
   AGAIN_CHOICE:
     sh: |
       #!/bin/bash
-      
+
       if [ "$RAYMOND_INPUT" = "YES" ]; then
           echo "<goto>REVIEW</goto>"
       else
@@ -91,20 +91,20 @@ states:
     prompt: |
       Evaluate the full implementation history and determine whether the task was
       completed successfully.
-      
+
       If there is an unresolved problem (missing features, failing tests, or other
       blocking issues):
       - Do NOT stage or commit anything
-      - Do NOT close the bm item
+      - Do NOT close the bs item
       - Leave all files dirty
       - Respond with `<goto>BAIL_OUT</goto>`
-      
+
       If the implementation is complete and successful:
       1. Stage the relevant files with `git add`
       2. Commit with a descriptive message:
          - Do not mention Claude as a coauthor or contributor
       3. Do NOT push — that is handled by PUSH_ATTEMPT
-      4. Do NOT close the bm item yet
+      4. Do NOT close the bs item yet
       5. Respond with `<goto>PUSH_ATTEMPT</goto>`
     allowed_transitions:
       - tag: goto
@@ -117,27 +117,27 @@ states:
       # BAIL_OUT.sh — abandon current work and release the task for another agent
       #
       # The task ID is expected in RAYMOND_INPUT (set when the CLAIM function was entered).
-      
+
       TASK_ID="$RAYMOND_INPUT"
-      
+
       # Abort any in-progress rebase (safe even if none is in progress)
       git rebase --abort 2>/dev/null || true
-      
+
       # Reset local branch to match the current branch's remote head
       branch=$(git rev-parse --abbrev-ref HEAD)
       git reset --hard "origin/$branch"
-      
+
       # Clean untracked files
       git clean -fd
-      
+
       # Delete push attempt counter if it exists
       rm -f .raymond/.push_attempts
-      
+
       # Release the task: clear assignee first (prevents race with another agent),
       # then set status to open
-      bm edit "$TASK_ID" --assignee ""
-      bm edit "$TASK_ID" --status open
-      
+      bs edit "$TASK_ID" --assignee ""
+      bs edit "$TASK_ID" --status open
+
       echo '<result>BAIL_OUT</result>'
   PUSH_ATTEMPT:
     sh: |
@@ -147,28 +147,28 @@ states:
       # Increments a counter each attempt. If over the cap, goto BAIL_OUT.
       # On successful push, goto CLOSE_TASK.
       # On rejection (non-fast-forward), goto REBASE.
-      
+
       COUNTER_FILE=".raymond/.push_attempts"
       MAX_ATTEMPTS=5
-      
+
       mkdir -p .raymond
-      
+
       if [ -f "$COUNTER_FILE" ]; then
           count=$(cat "$COUNTER_FILE")
       else
           count=0
       fi
-      
+
       count=$((count + 1))
-      
+
       if [ "$count" -gt "$MAX_ATTEMPTS" ]; then
           rm -f "$COUNTER_FILE"
           echo '<goto>BAIL_OUT</goto>'
           exit 0
       fi
-      
+
       echo "$count" > "$COUNTER_FILE"
-      
+
       if git push origin HEAD >/dev/null 2>&1; then
           rm -f "$COUNTER_FILE"
           echo '<goto>CLOSE_TASK</goto>'
@@ -178,9 +178,9 @@ states:
   CLOSE_TASK:
     prompt: |
       The work has been pushed successfully.  Close the task on the beads server.
-      
-      Run `bm close <id>` using the task ID from earlier in the conversation.
-      
+
+      Run `bs close <id>` using the task ID from earlier in the conversation.
+
       After closing, respond with `<result>GOOD</result>`.
     allowed_transitions:
       - tag: result
@@ -194,17 +194,17 @@ states:
       #   fetch fail  → <goto>BAIL_OUT</goto>   (network/auth failure)
       #   clean       → <goto>RETEST</goto>     (rebased cleanly, verify code)
       #   conflicts   → <goto>RESOLVE</goto>    (needs conflict resolution)
-      
+
       branch=$(git rev-parse --abbrev-ref HEAD)
-      
+
       if ! git fetch origin >/dev/null 2>&1; then
           echo '<goto>BAIL_OUT</goto>'
           exit 0
       fi
-      
+
       git rebase "origin/$branch" >/dev/null 2>&1
       exit_code=$?
-      
+
       if [ $exit_code -ne 0 ]; then
           echo '<goto>RESOLVE</goto>'
       else
@@ -213,21 +213,21 @@ states:
   RESOLVE:
     prompt: |
       A `git rebase` has encountered merge conflicts.  Your job is to resolve them.
-      
+
       Examine the conflicted files using `git status` and `git diff`.  For each
       conflict, understand what both sides intended and resolve meaningfully — do
       not just pick one side blindly.
-      
+
       After resolving all conflicts in a file, stage it with `git add <file>`.
-      
+
       Once all conflicts are resolved, run `git rebase --continue`.  If the
       rebase has multiple commits to replay, `--continue` may stop again with
       new conflicts on a subsequent commit.  Repeat the resolve/add/continue
       cycle until the rebase finishes completely.
-      
+
       If the rebase completes successfully, respond with `<goto>RETEST</goto>`
       so the code can be verified.
-      
+
       If the conflicts are too complex or contradictory to resolve, abort the
       rebase with `git rebase --abort` and respond with `<goto>BAIL_OUT</goto>`
       to abandon this task and release it for another agent.
@@ -241,11 +241,11 @@ states:
       A rebase has just completed, incorporating upstream changes into our work.
       The rebase may have introduced subtle incompatibilities even if there were
       no textual conflicts.
-      
+
       Run the project's test suite to verify that everything still works correctly.
-      
+
       If all tests pass, respond with `<goto>PUSH_ATTEMPT</goto>`.
-      
+
       If tests fail, respond with `<goto>REWORK</goto>`.
     allowed_transitions:
       - tag: goto
@@ -257,11 +257,11 @@ states:
       Tests are failing after a rebase.  Diagnose and fix the failures.  The
       problem may be an incompatibility between the upstream changes and our
       implementation.
-      
+
       Do not stage or commit — that is handled by COMMIT.
-      
+
       If you are able to fix the failures, respond with `<goto>COMMIT</goto>`.
-      
+
       If the failures cannot be resolved (too complex, contradictory requirements,
       or repeated unsuccessful attempts), respond with `<goto>BAIL_OUT</goto>`
       to abandon this task and release it for another agent.
@@ -273,7 +273,7 @@ states:
   DONE:
     sh: |
       #!/bin/bash
-      
+
       if [ "$RAYMOND_INPUT" = "GOOD" ] || [ "$RAYMOND_INPUT" = "BAIL_OUT" ]; then
           echo "<reset>CLAIM</reset>"
       else
