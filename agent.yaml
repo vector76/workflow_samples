@@ -1,3 +1,13 @@
+id: agent
+name: Feature Planner
+description: >-
+  Long-running feature planner on the bm backlog. Blocks on
+  bm claim-feature, then forks a child to either run an ask-driven dialog
+  to refine the feature or generate a plan and beads from it. Loops until a
+  STOP_REQUESTED file appears at the workflow root.
+input:
+  mode: none
+
 states:
   START:
     sh: |

@@ -1,3 +1,13 @@
+id: work
+name: Bead Implementer (bm)
+description: >-
+  Long-running worker that pulls ready beads off the bm queue, implements
+  them, reviews with fresh eyes, commits, and pushes with rebase/retry
+  handling. Loops to the next bead until the queue is empty. Idempotent
+  across restarts via bm mine.
+input:
+  mode: none
+
 states:
   START:
     timeout: 4000

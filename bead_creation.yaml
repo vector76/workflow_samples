@@ -1,0 +1,389 @@
+## bead_creation.yaml — turn a feature document into a list of beads on bs
+##
+## Replaces the generate half of agent.yaml: takes a path to a finished
+## feature.md as {{input}}, plans, reviews, explores the codebase, produces a
+## beads list, reviews that, and creates the beads on `bs` (no feature layer,
+## so no bm register-* / beads-done calls).
+##
+## Two entry routes:
+##   1. From feature_dialog.yaml via <reset-workflow input="<path>">.
+##   2. Standalone: `ray run bead_creation.yaml --input /path/to/feature.md`
+##      when the human already has a feature document.
+##
+## All scratch lives under {{task_folder}}: feature.md (copied from the input
+## path), plan.md, beads.md.
+
+id: bead-creation
+name: Bead Creation
+description: >-
+  Turn a finished feature document into a list of beads on the bs backlog
+  server, via a plan, review, explore-codebase, review, create pipeline.
+  Runs end-to-end without human intervention; can be invoked standalone
+  or as the handoff target from feature_dialog.yaml.
+input:
+  mode: required
+  label: Feature document path
+  description: Absolute or relative path to the feature.md to plan and turn into beads.
+
+states:
+  START:
+    sh: |
+      #!/bin/bash
+      # Validate the input path and stage feature.md into this workflow's
+      # task folder so every downstream state can refer to it at a fixed
+      # location.
+
+      if [ -z "$RAYMOND_INPUT" ]; then
+          echo "<result>ERROR: feature document path required as --input</result>"
+          exit 0
+      fi
+      if [ ! -f "$RAYMOND_INPUT" ]; then
+          echo "<result>ERROR: feature document not found at $RAYMOND_INPUT</result>"
+          exit 0
+      fi
+
+      mkdir -p "$RAYMOND_TASK_FOLDER"
+      cp "$RAYMOND_INPUT" "$RAYMOND_TASK_FOLDER/feature.md"
+      echo "<goto>GENERATE_DRAFT_PLAN</goto>"
+  GENERATE_DRAFT_PLAN:
+    prompt: |
+      Read the feature document `{{task_folder}}/feature.md`.
+
+      Then explore the parts of the codebase relevant to this feature. The
+      codebase may be large — use grep, glob, and targeted reads to find what
+      is pertinent. Focus on:
+      - Files, modules, and patterns directly related to the feature
+      - Existing architecture and conventions that the implementation must follow
+      - Integration points: what existing code will need to be called or modified
+      - Any existing partial work, related utilities, or test patterns to build on
+
+      **Scope reminder: your job is to plan, not to implement.** The codebase
+      research informs strategic decisions — where things live, what patterns
+      exist, what will need to change — but that knowledge must not become
+      code in the plan. The implementer will read the same codebase
+      themselves. Keep every statement in the plan at the level of strategy
+      and intent.
+
+      Based on the feature document and your research, write a detailed,
+      high-level implementation plan to `{{task_folder}}/plan.md`.
+
+      The plan must be:
+      - **Thorough**: every meaningful aspect of the feature should be
+        addressed — don't skip pieces just because they seem obvious
+      - **Strategic**: describe *what* must be accomplished and *why*, not
+        the code itself. The implementer is capable and will write their own
+        code.
+      - **Sequentially ordered**: steps should be sequenced so that each
+        builds on what came before — no step should depend on work that has
+        not yet been done
+      - **Dependency-explicit**: where a step depends on another, say so
+        clearly so the implementer knows what order to work in and what each
+        phase requires
+      - **Implementation-free**: do not include code snippets, specific
+        function signatures, class names, or variable names. Describe the
+        approach at the level of strategy: "add a service that does X using
+        the existing Y pattern" rather than "create class Foo with method
+        bar(baz)"
+
+      Structure the plan with clearly named phases or sections. Where
+      relevant, each section should address: the goal of the phase, what
+      strategic work must be done, what prior phases must have delivered,
+      and what this phase delivers for subsequent phases. Adapt this
+      structure to the feature — a simple phase may need less scaffolding
+      than a complex one.
+
+      Stop after writing `{{task_folder}}/plan.md`. Do not begin implementing
+      yet — that happens in a later workflow.
+    allowed_transitions:
+      - tag: goto
+        target: REVIEW_PLAN
+  REVIEW_PLAN:
+    prompt: |
+      Re-read the plan file `{{task_folder}}/plan.md` and the feature
+      definition `{{task_folder}}/feature.md` carefully — approach the plan
+      as if you are seeing it for the first time.
+
+      (We are reviewing the plan, not the feature definition, which we are
+      taking as given.)
+
+      **Scope reminder: this is a planning workflow, not an implementation
+      workflow.** The goal is a complete, well-structured strategic plan. Do
+      not add code. Do not begin designing the actual implementation in your
+      head and transcribing it into the document. If you find yourself
+      reaching for specific function signatures, class hierarchies, or
+      implementation detail, step back — those decisions belong to the
+      implementer.
+
+      Check for the following and fix any issues directly in the plan file:
+
+      - **Missing steps**: Is any work needed before a later step can
+        proceed, but absent from the plan? Add it.
+      - **Dependency violations**: Does any step assume something a prior
+        step has not yet delivered? Reorder or add clarifying steps as needed.
+      - **Coverage gaps**: Does the plan address everything described in the
+        feature? Compare the plan directly against the feature definition
+        document and add anything that was overlooked.
+      - **Over-specification**: Are there code snippets, specific names, or
+        low-level implementation decisions that belong in the code, not in a
+        high-level plan? Remove or elevate them to strategy.
+      - **Under-specification**: Are any steps too vague to guide an
+        implementer? "Integrate with the database" is evasive — "add a
+        persistence layer for X and Y following the existing repository
+        pattern" is strategic. Raise the level of clarity without descending
+        into implementation detail.
+      - **Strategic clarity**: Does each section clearly convey what must be
+        accomplished and why? Would a developer know where to start and what
+        success looks like at each phase?
+
+      Fix any meaningful issues directly in the file. Leave things alone if
+      they are already correct or merely a matter of preference.
+
+      Stop after reviewing and fixing the plan. We are not implementing yet
+      — that is not part of this workflow.
+    allowed_transitions:
+      - tag: call
+        target: PLAN_DID_FIX
+        return: PLAN_AGAIN_CHOICE
+  PLAN_DID_FIX:
+    prompt: |
+      Review the previous review/fix step and determine whether anything was
+      actually changed in the plan file.
+
+      If the review found and fixed meaningful issues (even minor ones),
+      another review pass is needed. Respond with:
+      <result>YES</result>
+
+      If nothing was changed — the plan was already sound, or only
+      observations were noted without any fixes applied — the plan has
+      converged. Respond with:
+      <result>NO</result>
+    allowed_transitions:
+      - tag: result
+        payload: YES
+      - tag: result
+        payload: NO
+    model: haiku
+  PLAN_AGAIN_CHOICE:
+    sh: |
+      #!/bin/bash
+      # {{input}} carries PLAN_DID_FIX's verdict. Loop the review on YES;
+      # otherwise advance to codebase exploration in a fresh session.
+
+      case "$RAYMOND_INPUT" in
+          YES) echo "<goto>REVIEW_PLAN</goto>" ;;
+          *)   echo "<reset>EXPLORE_CODEBASE</reset>" ;;
+      esac
+  EXPLORE_CODEBASE:
+    prompt: |
+      The feature definition is in `{{task_folder}}/feature.md`. The plan to
+      work from is `{{task_folder}}/plan.md`. Read them to understand the
+      feature and implementation plan. The beads file (our output) is
+      `{{task_folder}}/beads.md`.
+
+      The feature and plan are inputs and are not to be changed — only
+      `{{task_folder}}/beads.md` is to be written.
+
+      Determine whether the plan involves modifying an existing codebase or
+      if it's creating a new greenfield project.
+
+      If the plan is for a greenfield project with no existing codebase to
+      explore, skip the exploration phase and proceed directly to generating
+      the beads list.
+
+      If the plan involves an existing codebase, explore the specific
+      integration points the plan describes. Try to stay focused — explore
+      only what the plan actually refers to or is meaningful to the planned
+      implementation, not the whole codebase.
+
+      If you are discussing XML tags as part of the subject matter, use
+      "&lt;" and "&gt;" in place of brackets to avoid confusing the
+      orchestrator.
+
+      Then, transform the implementation plan into a structured list of beads.
+
+      **Critical constraint — each bead runs in a completely fresh Claude
+      Code context window.** It has no visibility into the context of other
+      beads and no access to anything except files on disk. Bead
+      implementation has full access to the codebase, but bead descriptions
+      must be self-contained as far as not referring to other beads.
+
+      Create `{{task_folder}}/beads.md` with two sections:
+
+      **Section 1 — Codebase Notes** (omit entirely for greenfield projects):
+      If you explored an existing codebase, summarize the findings here.
+      This is a reference used during bead creation to make descriptions
+      precise — not a mechanism to begin the implementation. Include:
+      - Integration points: specific files, functions, and classes involved
+      - Patterns to follow: error handling, naming, test conventions (with
+        file references)
+      - Test locations: test file paths and relevant conventions
+
+      **Section 2 — Beads**:
+      Each bead should be a self-contained, independently executable unit of
+      work — roughly 45 minutes to 1.5 hours of human-equivalent work.
+      Smaller, focused beads are better than large ones, so don't join
+      unrelated functions just because of bead size.
+
+      Use this format for each bead:
+
+      ### bead-N (placeholder): [Title]
+      **Work:** [Specific description — exact file paths, function names, what to do]
+      **Estimate:** ~X min
+      **Dependencies:** [bead names, or "none"]
+
+      Stop after writing the beads file. Do not create any actual beads yet
+      — that happens in a later step.
+    allowed_transitions:
+      - tag: goto
+        target: REVIEW_BEADS
+  REVIEW_BEADS:
+    prompt: |
+      Re-read the beads file `{{task_folder}}/beads.md` carefully against
+      the plan file `{{task_folder}}/plan.md`. Look for:
+
+      **Coverage and structure:**
+      - Missing beads or incomplete coverage of the implementation plan
+      - Incorrect or unclear dependency specifications
+      - Beads that are too small in scope (consider merging with a neighbor)
+      - Dependencies that reference non-existent beads
+      - Beads estimated at more than ~2 hours — candidates for splitting.
+        Sweet spot is ~45 min to ~1.5 hours per bead. Soft guideline, not a
+        hard limit.
+
+      **Fresh-context and independence:**
+      - Vague Work descriptions that say "find the handler" or "locate the
+        relevant code" when specific file paths and function names are
+        available in the Codebase Notes section or derivable from the plan.
+        Bead descriptions should be specific enough that the bead can get to
+        work immediately without re-doing the exploration.
+      - "Research beads" that exist solely to gather information for later
+        beads. This is a bad pattern — beads run in a fresh context and
+        cannot reliably pass structured findings to one another. Research
+        should happen during the plan-to-beads process and be baked into the
+        relevant bead descriptions or the Codebase Notes section.
+      - Unnecessarily sequential dependencies. Dependencies should reflect
+        genuine ordering constraints (e.g., implement before testing), not
+        information transfer between beads.
+
+      If you find major or minor issues, fix them directly in the beads file.
+
+      "Not a bug" observations do not need to be fixed, though you may
+      improve them if clearly beneficial.
+
+      Stop after reviewing/fixing the beads file. Do not create any actual
+      beads yet — that happens in a later step.
+    allowed_transitions:
+      - tag: call
+        target: BEADS_DID_FIX
+        return: BEADS_AGAIN_CHOICE
+  BEADS_DID_FIX:
+    prompt: |
+      Review the previous review/fix step and determine whether anything was
+      actually fixed in the beads file.
+
+      If major or minor issues were identified and fixed, then another review
+      cycle is needed. Respond with:
+      <result>YES</result>
+
+      If nothing was fixed (either because everything was already correct,
+      or only "not a bug" observations were made without applying fixes),
+      then the beads list has converged. Respond with:
+      <result>NO</result>
+    allowed_transitions:
+      - tag: result
+        payload: YES
+      - tag: result
+        payload: NO
+    model: haiku
+  BEADS_AGAIN_CHOICE:
+    sh: |
+      #!/bin/bash
+      # Loop the beads review on YES; otherwise advance to creation in a
+      # fresh session.
+
+      case "$RAYMOND_INPUT" in
+          YES) echo "<goto>REVIEW_BEADS</goto>" ;;
+          *)   echo "<reset>CREATE_BEADS</reset>" ;;
+      esac
+  CREATE_BEADS:
+    prompt: |
+      Now create all the beads specified in `{{task_folder}}/beads.md` using
+      the `bs` command.
+
+      The relevant commands for bead creation are `bs add`, `bs link`,
+      `bs edit`, `bs list`. Details for each can be found with `--help`, for
+      example `bs add --help`.
+
+      **Step 0: Check for partial creation**
+      Before starting, run:
+      `bs list --status open,not_ready,in_progress`
+      to check for a possible aborted previous run.
+
+      Also check `{{task_folder}}/beads.md` for possible bead IDs. Use this
+      information to determine which beads still need to be created — don't
+      create them a second time.
+
+      **Step 1: Create all beads**
+      For each bead in `{{task_folder}}/beads.md`:
+      1. Compose the bead's full description using the plan file, the bead's
+         Work description, and the Codebase Notes section of the beads file
+         (if present). The description is the complete prompt the bead
+         receives — it runs in a fresh context with no memory of other beads.
+         Make it self-contained: include specific file paths and function
+         names so the bead can get to work immediately.
+      2. Create the bead with `--status not_ready` to prevent it from being
+         claimed before its prerequisites are wired up:
+         `bs add --status not_ready ...`
+      3. Note the assigned bead identifier (e.g., bd-xk2a3).
+      4. Update `{{task_folder}}/beads.md` to include the assigned identifier
+         next to that bead.
+
+      **Step 2: Set up all dependencies**
+      After ALL beads have been created and you have collected their
+      identifiers, set up dependencies between beads with `bs link`. Use
+      `bs link --help` for syntax.
+
+      **Step 3: Open the dependent beads**
+      After ALL dependencies have been set up, flip each `not_ready` bead to
+      `open`:
+      `bs edit <id> --status open`
+
+      (This three-step sequence ensures no bead can be claimed before its
+      prerequisites are fully registered, in case a worker is eager to grab
+      open beads.)
+
+      Stop after completing all three steps. Do not validate yet — that
+      happens in the next step.
+    allowed_transitions:
+      - tag: call
+        target: VALIDATE
+        return: DONE
+  VALIDATE:
+    prompt: |
+      Validate that all beads were created correctly:
+
+      1. Use `bs` commands to list and inspect the beads that were just created
+      2. Compare the created beads against `{{task_folder}}/beads.md` to
+         ensure all beads were created
+      3. Verify that all dependencies specified in the beads file have been
+         properly established between the beads
+      4. Check that bead identifiers in the beads file match the actual
+         created beads
+      5. Verify that no beads remain in `not_ready` status — all should have
+         been flipped to `open` after dependencies were set up. Beads that
+         have already progressed to `in_progress` or beyond are fine; what
+         matters is that none were left in `not_ready`.
+
+      If everything is validated successfully, respond with:
+      <result>SUCCESS</result>
+
+      If validation fails, include details about what went wrong:
+      <result>VALIDATION FAILED: [describe the issue]</result>
+    allowed_transitions:
+      - tag: result
+  DONE:
+    sh: |
+      #!/bin/bash
+      # {{input}} carries VALIDATE's verdict. Pass it through as the
+      # workflow's terminal result.
+      echo "<result>$RAYMOND_INPUT</result>"

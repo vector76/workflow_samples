@@ -8,6 +8,18 @@ Each workflow is a single-file YAML state machine. States are either shell
 scripts (`sh:`) or Claude prompts (`prompt:`); transitions are emitted as XML
 tags like `<goto>`, `<fork>`, `<call>`, `<reset>`, and `<result>`.
 
+## Workflows at a glance
+
+| Workflow | One-line summary |
+|---|---|
+| [`check_prereqs.yaml`](#check_prereqsyaml--prerequisite-check) | Verify required tools and Claude settings are present before running anything else. |
+| [`work.yaml`](#workyaml--bead-implementer-bm) | Long-running worker that claims, implements, reviews, and pushes beads (targets `bm`). |
+| [`work_bs.yaml`](#work_bsyaml--bead-implementer-bs) | Same implementer loop as `work.yaml`, targeting a bare `bs` beads server. |
+| [`agent.yaml`](#agentyaml--feature-planner-bm) | Long-running feature planner: dialogs, plans, and generates beads via `bm`. |
+| [`feature_dialog.yaml`](#feature_dialogyaml--feature-refinement-dialog) | Standalone `<ask>`-driven dialog that refines a feature description (the dialog half of `agent.yaml`). |
+| [`bead_creation.yaml`](#bead_creationyaml--feature-document-to-beads-bs) | Standalone pipeline turning a finished `feature.md` into beads on `bs` (the generate half of `agent.yaml`). |
+| [`work_and_agent.yaml`](#work_and_agentyaml--run-both) | Launcher that forks `agent.yaml` and `work.yaml` as concurrent children. |
+
 ## Backing tools
 
 The workflows shell out to one of two CLIs, which expose essentially the same
@@ -24,6 +36,26 @@ respectively. `agent.yaml` only works against `bm` because it depends on the
 feature commands.
 
 ## The workflows
+
+### `check_prereqs.yaml` — prerequisite check
+
+A single-state shell workflow that fails fast if the environment isn't set
+up. It takes no input and just runs, emitting `<result>OK</result>` when
+every check passes or `<result>MISSING: …</result>` (with the reason) on the
+first failure. Current checks:
+
+1. `bs` is on `PATH`.
+2. `bs list` returns valid JSON — i.e. the beads server is reachable and auth
+   is configured (the exit code is unreliable, so the JSON parse is the real
+   signal).
+3. `jq` is on `PATH`.
+4. `~/.claude/settings.json` exists and has `attribution.commit` and
+   `attribution.pr` set to `""`, and `includeCoAuthoredBy` set to `false`.
+5. `clusage-cli` is on `PATH` and `clusage-cli ping` returns `OK`.
+6. `settings.json` wires a `Stop` hook running `clusage-cli log --from-hook`.
+
+Each check is an independent block; extend it by appending another in the
+same `… || fail "reason"` style.
 
 ### `work.yaml` — bead implementer (bm)
 
@@ -95,6 +127,30 @@ Each claim dispatches into one of three sub-flows:
 `CLEANUP` removes the per-feature scratch directory and the forked worker
 terminates; the main thread keeps claiming.
 
+### `feature_dialog.yaml` — feature refinement dialog
+
+The dialog half of `agent.yaml` pulled out standalone — no `bm`, no claim
+loop, no fork. The human types the feature description into the first
+`<ask>`, then iterates with the assistant: each round the assistant analyzes
+the current `feature.md`, folds in corrections and assumptions, and asks any
+remaining questions via `<ask>`. Replying `done` locks the document;
+`FINALIZE` then asks whether to hand off to `bead_creation.yaml` — yes
+triggers a `<reset-workflow>`, no terminates with the `feature.md` path as
+the result. One-shot per `ray` invocation; scratch lives under
+`{{task_folder}}`.
+
+### `bead_creation.yaml` — feature document to beads (bs)
+
+The generate half of `agent.yaml` pulled out standalone, targeting `bs`
+(no feature layer, so no `bm register-*` / `beads-done` calls). Takes a path
+to a finished `feature.md` as `{{input}}`, then runs the
+plan → review → explore-codebase → review → create pipeline:
+`GENERATE_DRAFT_PLAN` → `REVIEW_PLAN` → `EXPLORE_CODEBASE` →
+`REVIEW_BEADS` → `CREATE_BEADS` → `VALIDATE`. Runs end-to-end without human
+intervention. Two entry routes: as the `<reset-workflow>` handoff target
+from `feature_dialog.yaml`, or standalone via
+`ray run bead_creation.yaml --input /path/to/feature.md`.
+
 ### `work_and_agent.yaml` — run both
 
 Three-state launcher that forks `agent.yaml` and `work.yaml` as concurrent
@@ -105,10 +161,14 @@ START state, so this file doesn't reimplement that gating.
 ## Running
 
 ```bash
+ray run check_prereqs.yaml     # environment sanity check
 ray run agent.yaml             # planner only
 ray run work.yaml              # implementer only (bm)
 ray run work_bs.yaml           # implementer only (bs)
 ray run work_and_agent.yaml    # both
+
+ray run feature_dialog.yaml                          # refine a feature interactively
+ray run bead_creation.yaml --input path/to/feature.md  # feature doc -> beads (bs)
 ```
 
 Both long-running workflows are idempotent across restarts — `work.yaml`

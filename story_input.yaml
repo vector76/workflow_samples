@@ -1,0 +1,32 @@
+# Start with ray serve --root . --port 5173
+id: story_input
+name: Story generator
+description: Generates one-paragraph story about given subject with one round of human input
+requires_human_input: true
+input:
+  mode: required
+  label: Subject
+
+states:
+  START:
+    allowed_transitions:
+      - tag: ask
+    prompt: |
+      Create a one-paragraph story about {{input}}.
+      
+      Respond with the story content within "ask" xml tags, i.e. <ask> ... </ask>.
+      
+      This will serve as a prompt to the human for the next round of input.
+      
+      The ask tag *MUST* have a "next" attribute that specifies next="REVIEW", i.e.
+      <ask next="REVIEW"> ... </ask>.
+  REVIEW:
+    prompt: |
+      The human has responded with the following feedback:
+      {{input}}
+      
+      Take this as feedback and write the updated story to `story.md`.  Then respond with 
+      
+      <result>SUCCESS</result>
+    allowed_transitions:
+      - tag: result

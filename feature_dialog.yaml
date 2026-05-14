@@ -1,0 +1,206 @@
+## feature_dialog.yaml — refine a feature description through <ask>-driven dialog
+##
+## Replaces the dialog half of agent.yaml: no bm, no claim loop, no fork. The
+## human types the feature description into the first <ask>, then iterates with
+## the assistant — each round the assistant analyzes the current feature.md,
+## updates it with corrections/assumptions, and asks any remaining questions
+## via <ask>. The human responds "done" to lock the document, or answers the
+## questions to drive another round.
+##
+## When the feature is locked, FINALIZE asks whether to hand off to
+## bead_creation.yaml — yes triggers <reset-workflow>, no terminates with the
+## feature.md path as the result.
+##
+## One-shot per ray invocation. All scratch lives under {{task_folder}}.
+
+id: feature-dialog
+name: Feature Dialog
+description: >-
+  Refine a feature description through iterative ask-driven dialog with
+  a human. The first ask collects the feature; each subsequent round
+  surfaces assumptions and gaps and folds the human's response back in.
+  Replying with "done" locks the document and optionally hands off to
+  bead_creation.yaml for planning and bead generation.
+input:
+  mode: none
+
+states:
+  START:
+    sh: |
+      #!/bin/bash
+      # Deterministic intake ask — body is fixed text, so a script emits it
+      # without burning an LLM round-trip on a paraphrase-able prompt. The
+      # heredoc preserves the body verbatim.
+      cat <<'TAG'
+      <ask next="INTAKE">
+      Paste your feature description below. It can be rough — this workflow
+      will analyze it, raise assumptions and ambiguities, and iterate with you
+      until the description is clean enough to hand off for planning.
+      </ask>
+      TAG
+  INTAKE:
+    sh: |
+      #!/bin/bash
+      # Persist the feature description the human just typed into the <ask>.
+      # All later states read and update this file.
+
+      mkdir -p "$RAYMOND_TASK_FOLDER"
+      printf '%s\n' "$RAYMOND_INPUT" > "$RAYMOND_TASK_FOLDER/feature.md"
+      echo "<goto>ANALYZE</goto>"
+  ANALYZE:
+    prompt: |
+      The feature description is in `{{task_folder}}/feature.md`. Read that
+      file now. You're collaborating with the human to get a good clean
+      feature definition to then guide implementation.
+
+      Analyze the feature document for:
+      - **Errors or inconsistencies**: anything that contradicts itself or
+        conflicts with how software typically works
+      - **Incomplete areas**: functionality mentioned but not adequately
+        described — edge cases, error conditions, interactions with other
+        parts of the system
+      - **Underspecified areas**: decisions left unmade — behavior that a
+        developer would have to guess at
+      - **Ambiguities**: descriptions that could reasonably be interpreted in
+        more than one way
+
+      For each issue, **make a concrete assumption** rather than asking an
+      open-ended question. State the assumption clearly so the human can
+      approve or override with minimal effort. Use "I assume X — correct me
+      if wrong" rather than "What should X be?". Only ask a direct question
+      when there is genuinely no reasonable default.
+
+      Update `{{task_folder}}/feature.md` with your corrections and
+      assumptions. The feature document should describe **what** the feature
+      does, not how it is built. A little implementation detail is okay but
+      don't over-specify — the implementer is smart and can figure it out.
+
+      Then emit an ask tag for the human's response. The body of the tag
+      is what the human sees; the closing sentence below should appear
+      verbatim.
+
+      <ask next="RESPOND" display_files="feature.md">
+      ...your analysis, ordered: significant issues first, then assumptions,
+      then minor notes. If the document is already complete with no
+      meaningful gaps, say so at the top...
+
+      Begin your reply with 'done' to lock the document (any text after
+      'done' is treated as final corrections). Otherwise, answer any of the
+      above to drive another round.
+      </ask>
+
+      Do not begin planning or implementation yet — that happens in a later
+      workflow.
+    allowed_transitions:
+      - tag: ask
+        next: RESPOND
+  RESPOND:
+    sh: |
+      #!/bin/bash
+      # Receive the human's reply to the most recent <ask>. Persist the
+      # whole response (so FINALIZE/INCORPORATE can read any trailing
+      # corrections), then route on whether the response begins with "done".
+      # Leading punctuation ("done.", "done,", "Done!") still counts. CR
+      # stripping handles CRLF line endings from clients that submit them.
+
+      printf '%s\n' "$RAYMOND_INPUT" > "$RAYMOND_TASK_FOLDER/response.md"
+
+      input=$(printf '%s' "$RAYMOND_INPUT" | tr -d '\r')
+      read -r first _ <<< "$input"
+      first_lower=$(printf '%s' "$first" | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]')
+
+      if [ "$first_lower" = "done" ]; then
+          echo "<goto>FINALIZE</goto>"
+      else
+          echo "<goto>INCORPORATE</goto>"
+      fi
+  INCORPORATE:
+    prompt: |
+      The feature description is in `{{task_folder}}/feature.md`. The
+      human's response to your previous round of questions/assumptions is in
+      `{{task_folder}}/response.md`. Read both.
+
+      Update `{{task_folder}}/feature.md` to incorporate the response:
+      - Apply corrections or overrides the human made to your assumptions
+      - Fold in new information or clarifications provided
+      - Lock in unchallenged assumptions as settled decisions in the document
+      - Keep the document focused on behavior and functionality, not
+        implementation detail
+
+      Then re-analyze the updated `{{task_folder}}/feature.md` for any
+      remaining gaps, ambiguities, or new questions raised by the response.
+
+      Emit an ask tag for the human's next reply. The body of the tag
+      is what the human sees; the closing sentence below should appear
+      verbatim.
+
+      <ask next="RESPOND" display_files="feature.md">
+      ...your updated questions and assumptions. If the document is now
+      complete and well-specified, say so plainly at the top...
+
+      Begin your reply with 'done' to lock the document (any text after
+      'done' is treated as final corrections). Otherwise, answer any of the
+      above to drive another round.
+      </ask>
+
+      Do not begin planning or implementation yet — that happens in a later
+      workflow.
+    allowed_transitions:
+      - tag: ask
+        next: RESPOND
+  FINALIZE:
+    prompt: |
+      The human has said this is the last round and the feature is converged.
+      Read `{{task_folder}}/feature.md` and `{{task_folder}}/response.md`.
+
+      The response begins with some variant of "done" (case-insensitive,
+      possibly with trailing punctuation). Any text after "done" is final
+      corrections to apply to feature.md. If the response is just "done"
+      alone with no further content, feature.md is already in its final
+      state — leave it as-is.
+
+      If there are corrections, apply them to `{{task_folder}}/feature.md`,
+      keeping the document focused on behavior and functionality rather
+      than implementation detail.
+
+      Then ask whether to hand off to the bead-creation workflow:
+
+      <ask next="HANDOFF" display_files="feature.md">
+      Feature locked at `{{task_folder}}/feature.md`. Reply 'yes' to hand
+      off to the bead-creation workflow now, or 'no' to stop here (you can
+      run bead_creation.yaml later against the same file).
+      </ask>
+    allowed_transitions:
+      - tag: ask
+        next: HANDOFF
+  HANDOFF:
+    sh: |
+      #!/bin/bash
+      # Route on the human's yes/no. On yes, transition this agent into
+      # bead_creation.yaml with the feature.md path forwarded as input. On
+      # no, terminate with the path so the human can pick it up later.
+
+      # Match the first word of the response (case-insensitive, punctuation
+      # stripped), so "yes", "Yes!", "y", "yes please" all trigger handoff.
+      # CR stripping handles CRLF line endings from clients that submit them.
+      input=$(printf '%s' "$RAYMOND_INPUT" | tr -d '\r')
+      read -r first _ <<< "$input"
+      first_lower=$(printf '%s' "$first" | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]')
+
+      feature_path="$RAYMOND_TASK_FOLDER/feature.md"
+
+      # Note: cross-workflow specifiers resolve relative to the caller YAML's
+      # virtual stem directory (feature_dialog.yaml → .../feature_dialog/),
+      # so a sibling file needs the `../` prefix to climb back out.
+      #
+      # task="new" gives the bead workflow its own task folder — otherwise
+      # the agent reuses ours and the bead workflow's START would try to
+      # `cp feature.md feature.md` onto itself.
+      case "$first_lower" in
+          yes|y)
+              echo "<reset-workflow task=\"new\" input=\"$feature_path\">../bead_creation.yaml</reset-workflow>"
+              ;;
+          *)
+              echo "<result>$feature_path</result>"
+              ;;
+      esac

@@ -1,3 +1,12 @@
+id: work-bs
+name: Bead Implementer (bs)
+description: >-
+  Mechanically identical to the work workflow, but every bm command is
+  swapped for bs. Use this when the queue is a bare beads server with no
+  feature layer in front of it.
+input:
+  mode: none
+
 states:
   START:
     timeout: 4000

@@ -1,3 +1,12 @@
+id: work-and-agent
+name: Planner + Implementer
+description: >-
+  Launcher that forks the agent and work workflows as concurrent child
+  workflows, so one Raymond instance acts as both feature planner and bead
+  implementer against the bm backlog.
+input:
+  mode: none
+
 states:
   START:
     sh: |

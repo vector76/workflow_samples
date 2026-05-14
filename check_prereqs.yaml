@@ -1,0 +1,82 @@
+id: check-prereqs
+name: Check Prerequisites
+description: Verify required tools and Claude settings are present before running other workflows.
+input:
+  mode: none
+
+# Single-state shell workflow.  Each check below is independent; add more
+# by appending a new block in the same `fail … exit 1` style.  When every
+# check passes the script falls through and emits <result>OK</result>.
+states:
+  START:
+    sh: |
+      #!/bin/bash
+      set -u
+
+      SETTINGS="$HOME/.claude/settings.json"
+
+      fail() {
+          # Emit a result and exit non-zero so the orchestrator surfaces the reason.
+          printf '<result>MISSING: %s</result>\n' "$1"
+          exit 1
+      }
+
+      # --- bs on PATH --------------------------------------------------------
+      command -v bs >/dev/null 2>&1 || fail "bs not on PATH"
+
+      # --- bs can reach the server ------------------------------------------
+      # `bs list` exits 0 even on auth/network failure and writes the error
+      # to stderr, so the only reliable signal is whether stdout is valid
+      # JSON.  jq is required here and for the settings.json checks further
+      # down; this is the only place it gets verified.
+      command -v jq >/dev/null 2>&1 || fail "jq not on PATH (needed to validate 'bs list' output and inspect settings.json)"
+      bs_list_out=$(bs list 2>/dev/null)
+      printf '%s' "$bs_list_out" | jq -e . >/dev/null 2>&1 \
+          || fail "'bs list' did not return JSON — server unreachable or auth not configured (stderr: $(bs list 2>&1 >/dev/null | head -1))"
+
+      # --- ~/.claude/settings.json exists -----------------------------------
+      [ -f "$SETTINGS" ] || fail "$SETTINGS not found"
+
+      # jq helper: emit the value at the given path as JSON, or the literal
+      # string "<<missing>>" if the path is absent.  Using tojson avoids the
+      # `// "default"` pitfall where false / null collapse into the default.
+      jget() {
+          jq -r --argjson path "$1" '
+              . as $root
+              | reduce $path[] as $k ({present: true, value: $root};
+                  if .present and (.value | type == "object") and (.value | has($k))
+                  then {present: true, value: .value[$k]}
+                  else {present: false} end)
+              | if .present then (.value | tojson) else "<<missing>>" end
+          ' "$SETTINGS"
+      }
+
+      # --- attribution.commit == "" -----------------------------------------
+      commit_attr=$(jget '["attribution","commit"]')
+      [ "$commit_attr" = '""' ] || fail "settings.attribution.commit must be \"\" (got: $commit_attr)"
+
+      # --- attribution.pr == "" ---------------------------------------------
+      pr_attr=$(jget '["attribution","pr"]')
+      [ "$pr_attr" = '""' ] || fail "settings.attribution.pr must be \"\" (got: $pr_attr)"
+
+      # --- includeCoAuthoredBy === false ------------------------------------
+      co_auth=$(jget '["includeCoAuthoredBy"]')
+      [ "$co_auth" = "false" ] || fail "settings.includeCoAuthoredBy must be false (got: $co_auth)"
+
+      # --- clusage-cli on PATH and responsive -------------------------------
+      command -v clusage-cli >/dev/null 2>&1 || fail "clusage-cli not on PATH"
+      ping_out=$(clusage-cli ping 2>&1)
+      [ "$ping_out" = "OK" ] || fail "clusage-cli ping did not return OK (got: $ping_out)"
+
+      # --- Stop hook wired up to clusage-cli --------------------------------
+      # Matches any entry under hooks.Stop[].hooks[] whose .type == "command"
+      # and whose .command contains the substring "clusage-cli log --from-hook".
+      # Tolerates whitespace tweaks and the trailing "|| true" suffix.
+      jq -e '
+          [ .hooks.Stop[]?.hooks[]?
+            | select(.type == "command"
+                     and (.command | test("clusage-cli[[:space:]]+log[[:space:]]+--from-hook"))) ]
+          | length > 0
+      ' "$SETTINGS" >/dev/null || fail "no Stop hook running 'clusage-cli log --from-hook' in $SETTINGS"
+
+      echo '<result>OK</result>'
