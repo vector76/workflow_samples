@@ -1,8 +1,8 @@
 # Workflow Samples
 
-A small collection of [Raymond](https://github.com/anthropics/raymond) workflows
+A small collection of [Raymond](https://github.com/vector76/raymond) workflows
 for running Claude as a planner and/or implementer against a beads-style task
-queue.
+queue (plus a minimal `ray serve` smoke test).
 
 Each workflow is a single-file YAML state machine. States are either shell
 scripts (`sh:`) or Claude prompts (`prompt:`); transitions are emitted as XML
@@ -19,6 +19,7 @@ tags like `<goto>`, `<fork>`, `<call>`, `<reset>`, and `<result>`.
 | [`feature_dialog.yaml`](#feature_dialogyaml--feature-refinement-dialog) | Standalone `<ask>`-driven dialog that refines a feature description (the dialog half of `agent.yaml`). |
 | [`bead_creation.yaml`](#bead_creationyaml--feature-document-to-beads-bs) | Standalone pipeline turning a finished `feature.md` into beads on `bs` (the generate half of `agent.yaml`). |
 | [`work_and_agent.yaml`](#work_and_agentyaml--run-both) | Launcher that forks `agent.yaml` and `work.yaml` as concurrent children. |
+| [`story_input.yaml`](#story_inputyaml--serve-smoke-test) | Minimal two-state workflow exercising `ray serve` launch input and one `<ask>` round-trip. |
 
 ## Backing tools
 
@@ -158,6 +159,22 @@ child workflows so one Raymond instance acts as both planner and
 implementer. `work.yaml` already waits for `bm` to be ready in its own
 START state, so this file doesn't reimplement that gating.
 
+### `story_input.yaml` — serve smoke test
+
+A minimal two-state workflow with no beads involvement — its real job is to
+exercise the `ray serve` launch path: a required launch input plus one
+`<ask>` round-trip with the human.
+
+1. **START** — Claude writes a one-paragraph story about the launch
+   `Subject` and emits it inside `<ask next="REVIEW">`, so the story itself
+   becomes the prompt the human responds to.
+2. **REVIEW** — folds the human's feedback in, writes the updated story to
+   `story.md`, and emits `<result>SUCCESS</result>`.
+
+Start the daemon with `ray serve --root . --port 5173` and launch it from
+the web UI — the quickest way to confirm serve, launch input, and `<ask>`
+delivery all work end to end.
+
 ## Running
 
 ```bash
@@ -169,6 +186,8 @@ ray run work_and_agent.yaml    # both
 
 ray run feature_dialog.yaml                          # refine a feature interactively
 ray run bead_creation.yaml --input path/to/feature.md  # feature doc -> beads (bs)
+
+ray serve --root . --port 5173   # serve all workflows; story_input.yaml is the launch/input smoke test
 ```
 
 Both long-running workflows are idempotent across restarts — `work.yaml`

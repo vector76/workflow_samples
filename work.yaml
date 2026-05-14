@@ -111,7 +111,7 @@ states:
       
       If the implementation is complete and successful:
       1. Stage the relevant files with `git add`
-      2. Commit with a descriptive message:
+      2. Commit *to the current branch* (don't create new branch) with a descriptive message:
          - Do not mention Claude as a coauthor or contributor
       3. Do NOT push — that is handled by PUSH_ATTEMPT
       4. Do NOT close the bm item yet

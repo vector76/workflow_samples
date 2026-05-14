@@ -21,6 +21,7 @@ description: >-
   surfaces assumptions and gaps and folds the human's response back in.
   Replying with "done" locks the document and optionally hands off to
   bead_creation.yaml for planning and bead generation.
+requires_human_input: true
 input:
   mode: none
 
