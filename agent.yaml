@@ -1,0 +1,624 @@
+states:
+  START:
+    sh: |
+      #!/bin/bash
+
+      if [ -f "STOP_REQUESTED" ]; then
+          echo "<result>STOP REQUESTED</result>"
+      else
+          sleep 1
+          echo "<reset>CLAIM</reset>"
+      fi
+  CLAIM:
+    sh: |
+      #!/bin/bash
+
+      # claim blocks forever until result is available, and when it's available,
+      # it's exclusively allocated to us so another 'bm claim' won't return the same
+      # item while we're working on it
+      result=$(bm claim-feature)
+      action=$(echo "$result" | jq -r '.action')
+      feature_id=$(echo "$result" | jq -r '.feature_id')
+      direct_to_bead=$(echo "$result" | jq -r '.direct_to_bead // false')
+
+      # main thread goes back to START (and then back to CLAIM) while a fresh worker
+      # goes on to handle the feature
+      if [ "$action" = "dialog_step" ]; then
+          echo "<fork next=\"START\" input=\"$feature_id\">DIALOG_STEP</fork>"
+      elif [ "$action" = "generate" ]; then
+          if [ "$direct_to_bead" = "true" ]; then
+              echo "<fork next=\"START\" input=\"$feature_id\">GENERATE_DIRECT</fork>"
+          else
+              echo "<fork next=\"START\" input=\"$feature_id\">GENERATE</fork>"
+          fi
+      elif [ "$action" = "timeout" ]; then
+          echo "<reset>START</reset>"
+      else
+          echo "<reset>START</reset>"
+      fi
+  DIALOG_STEP:
+    sh: |
+      #!/bin/bash
+
+      #  questions empty + response empty + is_final false  →  DIALOG_FIRST
+      #  questions empty + response empty + is_final true   →  DIALOG_FINALIZE
+      #  questions/response present + is_final false        →  DIALOG_NEXT
+      #  questions/response present + is_final true         →  DIALOG_LAST
+
+      # RAYMOND_INPUT contains the feature id, RAYMOND_AGENT_ID contains agent ID
+      result=$(bm fetch "$RAYMOND_INPUT")
+      mkdir -p ".bm/$RAYMOND_AGENT_ID"
+      echo "$result" | jq -r '.feature_description' > ".bm/$RAYMOND_AGENT_ID/bm_feature.md"
+
+      echo "$RAYMOND_INPUT" > ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt"
+      questions=$(echo "$result" | jq -r '.questions')
+      user_response=$(echo "$result" | jq -r '.user_response')
+      is_final=$(echo "$result" | jq -r '.is_final')
+
+      # questions from the previous round (if any)
+      if [ -n "$questions" ]; then
+          echo "$questions" > ".bm/$RAYMOND_AGENT_ID/bm_prev_quest.md"
+      fi
+
+      # user response from the previous round (if any)
+      if [ -n "$user_response" ]; then
+          echo "$user_response" > ".bm/$RAYMOND_AGENT_ID/bm_user.md"
+      fi
+
+      if [ -z "$questions" ] && [ -z "$user_response" ]; then
+          if [ "$is_final" = "true" ]; then
+              echo -n "" > ".bm/$RAYMOND_AGENT_ID/bm_quest.md"
+              echo "<goto input=\"$RAYMOND_AGENT_ID\">DIALOG_FINALIZE</goto>"
+          else
+              echo "<goto input=\"$RAYMOND_AGENT_ID\">DIALOG_FIRST</goto>"
+          fi
+      elif [ "$is_final" = "true" ]; then
+          echo -n "" > ".bm/$RAYMOND_AGENT_ID/bm_quest.md"
+          echo "<goto input=\"$RAYMOND_AGENT_ID\">DIALOG_LAST</goto>"
+      else
+          echo "<goto input=\"$RAYMOND_AGENT_ID\">DIALOG_NEXT</goto>"
+      fi
+  GENERATE:
+    sh: |
+      #!/bin/bash
+
+      # $RAYMOND_INPUT contains the feature id
+      result=$(bm fetch "$RAYMOND_INPUT")
+
+      mkdir -p ".bm/$RAYMOND_AGENT_ID"
+
+      echo "$result" | jq -r '.feature_description' > ".bm/$RAYMOND_AGENT_ID/bm_feature.md"
+      echo "$RAYMOND_INPUT" > ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt"
+
+      # transition to generating state
+      bm start-generate "$RAYMOND_INPUT"
+
+      echo "<goto input=\"$RAYMOND_AGENT_ID\">GENERATE_DRAFT_PLAN</goto>"
+  GENERATE_DIRECT:
+    sh: |
+      #!/bin/bash
+
+      # $RAYMOND_INPUT contains the feature id
+      result=$(bm fetch "$RAYMOND_INPUT")
+
+      mkdir -p ".bm/$RAYMOND_AGENT_ID"
+
+      echo "$result" | jq -r '.feature_description' > ".bm/$RAYMOND_AGENT_ID/bm_feature.md"
+      echo "$RAYMOND_INPUT" > ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt"
+
+      # transition to generating state
+      bm start-generate "$RAYMOND_INPUT"
+
+      echo "<goto input=\"$RAYMOND_AGENT_ID\">GENERATE_DIRECT_2</goto>"
+  DIALOG_FINALIZE:
+    sh: |
+      #!/bin/bash
+
+      if [[ -z "$RAYMOND_AGENT_ID" ]]; then
+          # prevent over-zealous delete if we somehow lost the feature ID
+          echo "Error: RAYMOND_AGENT_ID is not set" >&2
+          exit 1
+      fi
+
+      feature_id=$(cat ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt")
+      bm submit "$feature_id" --description ".bm/$RAYMOND_AGENT_ID/bm_feature.md" --questions ".bm/$RAYMOND_AGENT_ID/bm_quest.md"
+      rm -rf ".bm/$RAYMOND_AGENT_ID"
+
+      # forked worker terminates
+      echo "<result>DONE</result>"
+  DIALOG_FIRST:
+    prompt: |
+      The feature description you are working on is described in 
+      `.bm/{{input}}/bm_feature.md`.  Read that file now.  You're collaborating with
+      the human to get a good clean feature definition to then guide implementation.
+
+      Analyze the feature document for:
+      - **Errors or inconsistencies**: anything that contradicts itself or conflicts
+        with how software typically works
+      - **Incomplete areas**: functionality mentioned but not adequately described —
+        edge cases, error conditions, interactions with other parts of the system
+      - **Underspecified areas**: decisions left unmade — behavior that a developer
+        would have to guess at
+      - **Ambiguities**: descriptions that could reasonably be interpreted in more
+        than one way
+
+      For each issue, **make a concrete assumption** rather than asking an open-ended
+      question. State the assumption clearly so the human can approve or override with
+      minimal effort. Use "I assume X — correct me if wrong" rather than "What should
+      X be?". Only ask a direct question when there is genuinely no reasonable default.
+
+      Update the feature document with your corrections/assumptions.
+
+      The feature document should describe **what** the feature does, not how it is
+      built. A little bit of mention of implementation detail is okay but don't be
+      over-specifying the implementation.  The implementer is smart and can figure it
+      out.
+
+      Write your questions/assumptions to `.bm/{{input}}/bm_quest.md`, replacing the
+      entire file if it exists. Lead with significant issues, then list assumptions,
+      then minor notes. If the document is already complete and well-specified with
+      no meaningful gaps, say so at the top.
+
+      STOP after writing `.bm/{{input}}/bm_quest.md`. Do not start implementation or
+      do anything else.  That comes later after the human reviews your feedback.
+    allowed_transitions:
+      - tag: goto
+        target: DIALOG_FINALIZE
+  DIALOG_LAST:
+    prompt: |
+      The feature description you are working on is described in
+      `.bm/{{input}}/bm_feature.md`.  You're collaborating with the human to get a
+      good clean feature definition to then guide implementation.
+
+      Read `.bm/{{input}}/bm_feature.md`, and also read
+      `.bm/{{input}}/bm_prev_quest.md` (your previous questions/assumptions) and
+      `.bm/{{input}}/bm_user.md` (the human's response to your previous
+      questions/assumptions).
+
+      Update `.bm/{{input}}/bm_feature.md` file to incorporate the feedback:
+      - Apply corrections or overrides the human made to your assumptions
+      - Fold in new information or clarifications provided
+      - Lock in unchallenged assumptions as settled decisions in the document
+      - Avoid overspecifying implementation detail; keep the document focused on
+        behavior and functionality
+
+      The user has said this is the last update and we're ending the dialog.
+      Presumably the feature is converged to a good state.  Just update the feature
+      document to a good final state.
+
+      STOP after updating `.bm/{{input}}/bm_feature.md`. Do not start implementation
+      or do anything else.  That comes later when the human decides to move forward.
+    allowed_transitions:
+      - tag: goto
+        target: DIALOG_FINALIZE
+  DIALOG_NEXT:
+    prompt: |
+      The feature description you are working on is described in
+      `.bm/{{input}}/bm_feature.md`.  You're collaborating with the human to get a
+      good clean feature definition to then guide implementation.
+
+      Read `.bm/{{input}}/bm_feature.md`, and also read
+      `.bm/{{input}}/bm_prev_quest.md` (your previous questions/assumptions) and
+      `.bm/{{input}}/bm_user.md` (the human's response to your previous
+      questions/assumptions).
+
+      Update `.bm/{{input}}/bm_feature.md` file to incorporate the feedback:
+      - Apply corrections or overrides the human made to your assumptions
+      - Fold in new information or clarifications provided
+      - Lock in unchallenged assumptions as settled decisions in the document
+      - Avoid overspecifying implementation detail; keep the document focused on
+        behavior and functionality
+
+      Then re-analyze the updated `.bm/{{input}}/bm_feature.md` file for any
+      remaining gaps, ambiguities, or new questions raised by the human's response.
+      Write your updated analysis to `.bm/{{input}}/bm_quest.md`. If the document is
+      now complete and well-specified, say so.
+
+      STOP after writing `.bm/{{input}}/bm_quest.md`. Do not start implementation or
+      do anything else.  That comes later after the human reviews your feedback.
+    allowed_transitions:
+      - tag: goto
+        target: DIALOG_FINALIZE
+  GENERATE_DIRECT_2:
+    prompt: |-
+      Read the feature document `.bm/{{input}}/bm_feature.md`.
+
+      Come up with a title, and then create a bead using the syntax here:
+      - `bm add "title" --description "description here"` -- create a bead (see `bm add --help` for more detail)
+
+      The bead description should be the feature document verbatim.
+
+      Note the assigned bead identifier (e.g., `bd-xk2a3`) when the bead is created.
+
+      After creating the bead and getting the bead identifier, register the bead with
+      the backlog manager (bm).  To do so, first read `.bm/{{input}}/bm_feat_id.txt`
+      to get the feature ID that this bead pertains to.
+
+      Then do this command to register:
+      `bm register-bead <feature-id> <bead-id>`
+
+      After the bead has been registered with the above command, do this to notify
+      the manager that no more beads are coming:
+      `bm beads-done <feature-id>`
+
+      STOP after creating the bead, registering, and notifying that there are no 
+      other beads for this feature.  Do not begin implementation or do anything else.
+    allowed_transitions:
+      - tag: goto
+        target: CLEANUP
+        input: '{{input}}'
+  GENERATE_DRAFT_PLAN:
+    prompt: |
+      Re-read the feature document `.bm/{{input}}/bm_feature.md`.
+
+      Then explore the parts of the codebase relevant to this feature. The codebase
+      may be large — use grep, glob, and targeted reads to find what is pertinent.
+      Focus on:
+      - Files, modules, and patterns directly related to the feature
+      - Existing architecture and conventions that the implementation must follow
+      - Integration points: what existing code will need to be called or modified
+      - Any existing partial work, related utilities, or test patterns to build on
+
+      **Scope reminder: your job is to plan, not to implement.** The codebase research
+      informs strategic decisions — where things live, what patterns exist, what will
+      need to change — but that knowledge must not become code in the plan. The
+      implementer will read the same codebase themselves. Keep every statement in the
+      plan at the level of strategy and intent.
+
+      Based on the feature document and your research, write a detailed, high-level
+      implementation plan to `.bm/{{input}}/bm_plan.md`.
+
+      The plan must be:
+      - **Thorough**: every meaningful aspect of the feature should be addressed —
+        don't skip pieces just because they seem obvious
+      - **Strategic**: describe *what* must be accomplished and *why*, not the code
+        itself. The implementer is capable and will write their own code.
+      - **Sequentially ordered**: steps should be sequenced so that each builds on
+        what came before — no step should depend on work that has not yet been done
+      - **Dependency-explicit**: where a step depends on another, say so clearly so
+        the implementer knows what order to work in and what each phase requires
+      - **Implementation-free**: do not include code snippets, specific function
+        signatures, class names, or variable names. Describe the approach at the
+        level of strategy: "add a service that does X using the existing Y pattern"
+        rather than "create class Foo with method bar(baz)"
+
+      Structure the plan with clearly named phases or sections. Where relevant, each
+      section should address: the goal of the phase, what strategic work must be done,
+      what prior phases must have delivered, and what this phase delivers for
+      subsequent phases. Adapt this structure to the feature — a simple phase may
+      need less scaffolding than a complex one.
+
+      STOP after writing `.bm/{{input}}/bm_plan.md`.  Do not begin implementing or
+      doing anything else besides generating the plan document — that happens in a
+      later step.
+    allowed_transitions:
+      - tag: goto
+        target: REVIEW_PLAN
+        input: '{{input}}'
+  CLEANUP:
+    sh: |
+      #!/bin/bash
+
+      if [[ -z "$RAYMOND_AGENT_ID" ]]; then
+          # prevent over-zealous delete if we somehow lost the feature ID
+          echo "Error: RAYMOND_AGENT_ID is not set" >&2
+          exit 1
+      fi
+
+      rm -rf ".bm/$RAYMOND_AGENT_ID"
+
+      # forked worker terminates
+      echo "<result>$RAYMOND_INPUT</result>"
+  REVIEW_PLAN:
+    prompt: |
+      Re-read the plan file `.bm/{{input}}/bm_plan.md` and the feature definition
+      document `.bm/{{input}}/bm_feature.md` carefully — approach the plan as if you
+      are seeing it for the first time.
+
+      (We are reviewing the plan, not the feature definition, which we are taking as
+      given.)
+
+      **Scope reminder: this is a planning workflow, not an implementation workflow.**
+      The goal is a complete, well-structured strategic plan. Do not add code. Do not
+      begin designing the actual implementation in your head and transcribing it into
+      the document. If you find yourself reaching for specific function signatures,
+      class hierarchies, or implementation detail, step back — those decisions belong
+      to the implementer.
+
+      Check for the following and fix any issues directly in the plan file:
+
+      - **Missing steps**: Is any work needed before a later step can proceed, but
+        absent from the plan? Add it.
+      - **Dependency violations**: Does any step assume something a prior step has
+        not yet delivered? Reorder or add clarifying steps as needed.
+      - **Coverage gaps**: Does the plan address everything described in the feature?
+        Compare the plan directly against the feature definition document and add 
+        anything that was overlooked.
+      - **Over-specification**: Are there code snippets, specific names, or low-level
+        implementation decisions that belong in the code, not in a high-level plan?
+        Remove or elevate them to strategy.
+      - **Under-specification**: Are any steps too vague to guide an implementer?
+        "Integrate with the database" is evasive — "add a persistence layer for X and
+        Y following the existing repository pattern" is strategic. Raise the level of
+        clarity without descending into implementation detail.
+      - **Strategic clarity**: Does each section clearly convey what must be
+        accomplished and why? Would a developer know where to start and what success
+        looks like at each phase?
+
+      Fix any meaningful issues directly in the file. Leave things alone if they are
+      already correct or merely a matter of preference.
+
+      STOP after reviewing and fixing the plan. We are not implementing — do not start
+      writing code or detailed design artifacts. That is not part of this workflow.
+    allowed_transitions:
+      - tag: call
+        target: PLAN_DID_FIX
+        return: PLAN_AGAIN_CHOICE
+  PLAN_DID_FIX:
+    prompt: |
+      Review the previous review/fix step and determine whether anything was actually
+      changed in the plan file.
+
+      If the review found and fixed meaningful issues (even minor ones), another review
+      pass is needed. Respond with:
+      <result>YES</result>
+
+      If nothing was changed — the plan was already sound, or only observations were
+      noted without any fixes applied — the plan has converged. Respond with:
+      <result>NO</result>
+    allowed_transitions:
+      - tag: result
+        payload: YES
+      - tag: result
+        payload: NO
+    model: haiku
+  PLAN_AGAIN_CHOICE:
+    sh: |
+      #!/bin/bash
+
+      lower=$(echo "${RAYMOND_INPUT}" | tr '[:upper:]' '[:lower:]')
+
+      case "$lower" in
+          yes) echo "<goto input=\"$RAYMOND_AGENT_ID\">REVIEW_PLAN</goto>" ;;
+          no)
+              feature_id=$(cat ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt")
+              bm register-artifact "$feature_id" --type plan --file ".bm/$RAYMOND_AGENT_ID/bm_plan.md"
+              echo "<reset input=\"$RAYMOND_AGENT_ID\">EXPLORE_CODEBASE</reset>"
+              ;;
+          *)  echo "<goto input=\"$RAYMOND_AGENT_ID\">REVIEW_PLAN</goto>" ;;
+      esac
+  EXPLORE_CODEBASE:
+    prompt: |
+      The feature definition is in `.bm/{{input}}/bm_feature.md`.  The plan file to
+      work from is `.bm/{{input}}/bm_plan.md`.  Read them to understand the feature
+      and implementation plan. The beads filename (our output) is 
+      `.bm/{{input}}/bm_beads.md`.
+
+      The feature and plan are inputs and not to be changed, only 
+      `.bm/{{input}}/bm_beads.md` is to be written.
+
+      Determine whether the plan involves modifying an existing codebase or if it's
+      creating a new greenfield project.
+
+      If the plan is for a greenfield project with no existing codebase to explore,
+      skip the exploration phase and proceed directly to generating the beads list.
+
+      If the plan involves an existing codebase, explore the specific integration
+      points the plan describes. Try to stay focused — explore only what the plan
+      actually refers to or is meaningful to the planned implementation, not the
+      whole codebase.
+
+      If you are discussing XML tags as part of the subject matter, use "&lt;" and
+      "&gt;" in place of brackets to avoid confusing the orchestrator.
+
+      Then, transform the implementation plan into a structured list of beads.
+
+      **Critical constraint — each bead runs in a completely fresh Claude Code
+      context window.** It has no visibility into the context of other beads and
+      no access to anything except files on disk.  Bead implementation has full
+      access to the codebase, but bead descriptions must be self-contained as far as
+      not referring to other beads.
+
+      Create `.bm/{{input}}/bm_beads.md` with two sections:
+
+      **Section 1 — Codebase Notes** (omit entirely for greenfield projects):
+      If you explored an existing codebase, summarize the findings here. This is a
+      reference used during bead creation to make descriptions precise — not a
+      mechanism to begin the implementation. Include:
+      - Integration points: specific files, functions, and classes involved
+      - Patterns to follow: error handling, naming, test conventions (with file references)
+      - Test locations: test file paths and relevant conventions
+
+      **Section 2 — Beads**:
+      Each bead should be a self-contained, independently executable unit of work —
+      roughly 45 minutes to 1.5 hours of human-equivalent work. Smaller, focused 
+      beads are better than large ones, so don't join unrelated functions just 
+      because of bead size.
+
+      Use this format for each bead:
+
+      ### bead-N (placeholder): [Title]
+      **Work:** [Specific description — exact file paths, function names, what to do]
+      **Estimate:** ~X min
+      **Dependencies:** [bead names, or "none"]
+
+      STOP after writing the beads file. Do not create any actual beads yet — that
+      happens in a later step.
+    allowed_transitions:
+      - tag: goto
+        target: REVIEW_BEADS
+        input: '{{input}}'
+  REVIEW_BEADS:
+    prompt: |
+      Re-read the beads file `.bm/{{input}}/bm_beads.md` carefully against the plan
+      file `.bm/{{input}}/bm_plan.md`. Look for:
+
+      **Coverage and structure:**
+      - Missing beads or incomplete coverage of the implementation plan
+      - Incorrect or unclear dependency specifications
+      - Beads that are too small in scope (consider merging with a neighbor)
+      - Dependencies that reference non-existent beads
+      - Beads estimated at more than ~2 hours — candidates for splitting. Sweet spot
+        is ~45 min to ~1.5 hours per bead. Soft guideline, not a hard limit.
+
+      **Fresh-context and independence:**
+      - Vague Work descriptions that say "find the handler" or "locate the relevant
+        code" when specific file paths and function names are available in the
+        Codebase Notes section or derivable from the plan. Bead descriptions should
+        be specific enough that the bead can get to work immediately without re-doing
+        the exploration.
+      - "Research beads" that exist solely to gather information for later beads. 
+        This is a bad pattern — beads run in a fresh context and cannot reliably pass
+        structured findings to one another. Research should happen during the 
+        plan-to-beads process and be baked into the relevant bead descriptions or the
+        Codebase Notes section.
+      - Unnecessarily sequential dependencies. Dependencies should reflect genuine
+        ordering constraints (e.g., implement before testing), not information
+        transfer between beads.
+
+      If you find major or minor issues, fix them directly in the beads file.
+
+      "Not a bug" observations do not need to be fixed, though you may improve them if
+      clearly beneficial.
+
+      STOP after reviewing/fixing the beads file. Do not create any actual beads yet —
+      that happens in a later step.
+    allowed_transitions:
+      - tag: call
+        target: BEADS_DID_FIX
+        return: BEADS_AGAIN_CHOICE
+  BEADS_DID_FIX:
+    prompt: |
+      Review the previous review/fix step and determine whether anything was actually
+      fixed in the beads file.
+
+      If major or minor issues were identified and fixed, then another review cycle is
+      needed. Respond with:
+      <result>YES</result>
+
+      If nothing was fixed (either because everything was already correct, or only
+      "not a bug" observations were made without applying fixes), then the beads list
+      has converged. Respond with:
+      <result>NO</result>
+    allowed_transitions:
+      - tag: result
+        payload: YES
+      - tag: result
+        payload: NO
+    model: haiku
+  BEADS_AGAIN_CHOICE:
+    sh: |
+      #!/bin/bash
+
+      lower=$(echo "${RAYMOND_INPUT}" | tr '[:upper:]' '[:lower:]')
+
+      case "$lower" in
+          yes) echo "<goto input=\"$RAYMOND_AGENT_ID\">REVIEW_BEADS</goto>" ;;
+          no)
+              feature_id=$(cat ".bm/$RAYMOND_AGENT_ID/bm_feat_id.txt")
+              bm register-artifact "$feature_id" --type beads --file ".bm/$RAYMOND_AGENT_ID/bm_beads.md"
+              echo "<reset input=\"$RAYMOND_AGENT_ID\">CREATE_BEADS</reset>"
+              ;;
+          *)  echo "<goto input=\"$RAYMOND_AGENT_ID\">REVIEW_BEADS</goto>" ;;
+      esac
+  CREATE_BEADS:
+    prompt: |
+      Now create all the beads specified in the beads file 
+      `.bm/{{input}}/bm_beads.md` using the `bm` command.
+
+      The relevant commands for bead creation are `bm add`, `bm link`, `bm edit`, 
+      `bm list`.
+
+      The relevant commands to register beads with the feature are `bm register-bead` 
+      to associate the bead with the feature, and `bm beads-done` to indicate no more
+      beads will be registered.
+
+      Details for the above commands can be found by using `--help`, for example
+      `bm add --help` or `bm register-bead --help`.
+
+      The `bm` command has many sub-commands so `bm --help` is only a last resort.
+
+
+      **Step 0: Check for partial creation**
+      Before starting, perform 
+      `bm list --status open,not_ready,in_progress`
+      to check for a possible aborted previous run.
+
+      Also check the `.bm/{{input}}/bm_beads.md` file for possible bead IDs.  Use
+      this information to determine which beads still need to be created.  Don't
+      create them a second time.
+
+      **Step 1: Create all beads**
+
+      For each bead in the beads file `.bm/{{input}}/bm_beads.md`:
+      1. Compose the bead's full description using the plan file, the bead's Work
+         description, and the Codebase Notes section of the beads file (if present).
+         The description is the complete prompt the bead receives — it runs in a fresh
+         context with no memory of other beads. Make it self-contained: include specific
+         file paths and function names so the bead can get to work immediately.
+      2. Create the bead using the `bm` command:
+         - Create all beads with `--status not_ready` to prevent them from being 
+           claimed before its prerequisites are wired up:
+             `bm add --status not_ready ...`
+      3. Note the assigned bead identifier (e.g., bd-xk2a3)
+      4. Update the beads file `.bm/{{input}}/bm_beads.md` to include the assigned
+         identifier next to that bead
+
+      **Step 2: Set up all dependencies**
+
+      After ALL beads have been created and you have collected all their identifiers,
+      set up the dependencies between beads using the `bm` command and the identifiers
+      from the beads file.
+
+      The `bm link` command is used to set up dependencies.  use `bm link --help` for 
+      details on the syntax.
+
+      **Step 3: Open the dependent beads**
+
+      After ALL dependencies have been set up, flip each `not_ready` bead to `open`:
+      `bm edit <id> --status open`
+
+      (This three-step sequence ensures no bead can be claimed before its 
+      prerequisites are fully registered, in case a worker is eager to grab open 
+      beads.)
+
+      **Step 4: Register all beads with backlog manager (bm)**
+
+      Read `.bm/{{input}}/bm_feat_id.txt` to get the feature ID.
+
+      Then for every bead, do this command:
+      `bm register-bead <feature-id> <bead-id>`
+
+      Do this for each bead whether or not they had been created previously (from 
+      step 0 above).
+
+      After all beads have been registered with the above command, do this to notify
+      the manager that no more beads are coming.
+      `bm beads-done <feature-id>`
+
+      STOP after completing all four steps. Do not validate yet — that happens in a
+      later step.
+    allowed_transitions:
+      - tag: call
+        target: VALIDATE
+        return: CLEANUP
+  VALIDATE:
+    prompt: |
+      Validate that all beads were created correctly:
+
+      1. Use `bm` commands to list and inspect the beads that were just created
+      2. Compare the created beads against the beads file to ensure all beads were created
+      3. Verify that all dependencies specified in the beads file have been properly
+         established between the beads
+      4. Check that bead identifiers in the beads file match the actual created beads
+      5. Verify that no beads remain in `not_ready` status — all should have been flipped
+         to `open` after dependencies were set up. Beads that have already progressed to
+         `in_progress` or beyond are fine; what matters is that none were left in `not_ready`.
+
+      If everything is validated successfully, respond with:
+      <result>SUCCESS</result>
+
+      If validation fails, include details about what went wrong in the result:
+      <result>VALIDATION FAILED: [describe the issue]</result>
+    allowed_transitions:
+      - tag: result
