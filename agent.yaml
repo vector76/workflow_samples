@@ -1,5 +1,5 @@
 id: agent
-name: Feature Planner
+name: Feature Planner (bm)
 description: >-
   Long-running feature planner on the bm backlog. Blocks on
   bm claim-feature, then forks a child to either run an ask-driven dialog
@@ -12,6 +12,11 @@ states:
   START:
     sh: |
       #!/bin/bash
+
+      if ! command -v bm >/dev/null 2>&1; then
+          echo "<result>bm executable not available; cannot run feature planner</result>"
+          exit 0
+      fi
 
       if [ -f "STOP_REQUESTED" ]; then
           echo "<result>STOP REQUESTED</result>"

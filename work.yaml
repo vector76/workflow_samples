@@ -13,6 +13,12 @@ states:
     timeout: 4000
     sh: |
       #!/bin/bash
+
+      if ! command -v bm >/dev/null 2>&1; then
+          echo "<result>bm executable not available; cannot run bead implementer</result>"
+          exit 0
+      fi
+
       bm wait-ready --timeout 3600
       echo "<function return=\"START\">ONCE</function>"
   ONCE:
