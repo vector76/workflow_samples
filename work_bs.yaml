@@ -12,7 +12,38 @@ states:
     timeout: 4000
     sh: |
       #!/bin/bash
-      bs wait-ready --timeout 3600
+
+      # When ONCE returns, RAYMOND_INPUT carries its result. Propagate the
+      # terminal "all beads are done" signal up to terminate the workflow
+      # instead of re-entering the wait-ready/claim loop.
+      if [ "$RAYMOND_INPUT" = "ALL_DONE" ]; then
+          echo "<result>ALL_DONE</result>"
+          exit 0
+      fi
+
+      # Poll wait-ready in 300s chunks (12 × 300 = 3600s total) so that a
+      # depleted backlog can terminate quickly instead of hanging on a single
+      # long wait. Between chunks, check whether any non-terminal beads remain;
+      # if not, propagate ALL_DONE.
+      attempts=12
+      while [ "$attempts" -gt 0 ]; do
+          if bs wait-ready --timeout 300 >/dev/null 2>&1; then
+              break
+          fi
+          # Only terminate on a confirmed-empty list. A transient bs failure
+          # would also produce an empty `remaining`, and we'd rather loop than
+          # falsely kill the worker.
+          remaining_json=$(bs list --status open,not_ready,in_progress 2>/dev/null)
+          if [ $? -eq 0 ]; then
+              remaining=$(printf '%s' "$remaining_json" | jq -r '.beads | length' 2>/dev/null)
+              if [ "$remaining" = "0" ]; then
+                  echo "<result>ALL_DONE</result>"
+                  exit 0
+              fi
+          fi
+          attempts=$((attempts - 1))
+      done
+
       echo "<function return=\"START\">ONCE</function>"
   ONCE:
     sh: |
@@ -40,7 +71,20 @@ states:
       task_id=$(bs list --ready 2>/dev/null | jq -r '.beads[0].id // empty' 2>/dev/null)
 
       if [ -z "$task_id" ]; then
-          echo "<result>DONE</result>"
+          # Nothing ready right now. Terminate only if there is no remaining
+          # non-terminal work anywhere — otherwise another worker's in-progress
+          # bead (or a bead still being created) may unblock things, so wait.
+          # A transient bs failure must not be treated as "empty" — loop instead.
+          remaining_json=$(bs list --status open,not_ready,in_progress 2>/dev/null)
+          if [ $? -eq 0 ]; then
+              remaining=$(printf '%s' "$remaining_json" | jq -r '.beads | length' 2>/dev/null)
+              if [ "$remaining" = "0" ]; then
+                  echo "<result>ALL_DONE</result>"
+                  exit 0
+              fi
+          fi
+          sleep 30
+          echo "<goto>CLAIM</goto>"
           exit 0
       fi
 
