@@ -381,7 +381,6 @@ states:
         payload: YES
       - tag: result
         payload: NO
-    model: haiku
   PLAN_AGAIN_CHOICE:
     sh: |
       #!/bin/bash
@@ -493,6 +492,7 @@ states:
 
       STOP after reviewing/fixing the beads file. Do not create any actual beads yet —
       that happens in a later step.
+      (do not emit an xml transition tag)
     allowed_transitions:
       - tag: call
         target: BEADS_DID_FIX
@@ -515,7 +515,6 @@ states:
         payload: YES
       - tag: result
         payload: NO
-    model: haiku
   BEADS_AGAIN_CHOICE:
     sh: |
       #!/bin/bash
