@@ -1,4 +1,3 @@
-id: check-prereqs
 name: Check Prerequisites
 description: Verify required tools and Claude settings are present before running other workflows.
 input:

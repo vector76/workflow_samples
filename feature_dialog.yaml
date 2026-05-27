@@ -12,9 +12,7 @@
 ## feature.md path as the result.
 ##
 ## One-shot per ray invocation. All scratch lives under {{task_folder}}.
-
-id: feature-dialog
-name: Feature Dialog
+name: (no-bm 1) Feature Dialog
 description: >-
   Refine a feature description through iterative ask-driven dialog with
   a human. The first ask collects the feature; each subsequent round

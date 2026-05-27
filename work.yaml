@@ -1,5 +1,4 @@
-id: work
-name: Bead Implementer (bm)
+name: (bm) Bead Implementer
 description: >-
   Long-running worker that pulls ready beads off the bm queue, implements
   them, reviews with fresh eyes, commits, and pushes with rebase/retry

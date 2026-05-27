@@ -1,5 +1,4 @@
-id: agent
-name: Feature Planner (bm)
+name: (bm) Feature Planner
 description: >-
   Long-running feature planner on the bm backlog. Blocks on
   bm claim-feature, then forks a child to either run an ask-driven dialog

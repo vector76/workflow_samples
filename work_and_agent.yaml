@@ -1,5 +1,4 @@
-id: work-and-agent
-name: Planner + Implementer
+name: (bm) Planner + Implementer
 description: >-
   Launcher that forks the agent and work workflows as concurrent child
   workflows, so one Raymond instance acts as both feature planner and bead

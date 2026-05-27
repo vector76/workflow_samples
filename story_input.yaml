@@ -1,5 +1,3 @@
-# Start with ray serve --root . --port 5173
-id: story_input
 name: Story generator
 description: Generates one-paragraph story about given subject with one round of human input
 requires_human_input: true

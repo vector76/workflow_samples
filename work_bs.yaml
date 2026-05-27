@@ -1,5 +1,4 @@
-id: work-bs
-name: Bead Implementer (bs)
+name: (no-bm 3) Bead Implementer
 description: >-
   Mechanically identical to the work workflow, but every bm command is
   swapped for bs. Use this when the queue is a bare beads server with no
@@ -25,9 +24,9 @@ states:
       # depleted backlog can terminate quickly instead of hanging on a single
       # long wait. Between chunks, check whether any non-terminal beads remain;
       # if not, propagate ALL_DONE.
-      attempts=12
+      attempts=100
       while [ "$attempts" -gt 0 ]; do
-          if bs wait-ready --timeout 300 >/dev/null 2>&1; then
+          if bs wait-ready --timeout 30 >/dev/null 2>&1; then
               break
           fi
           # Only terminate on a confirmed-empty list. A transient bs failure
@@ -103,6 +102,7 @@ states:
 
       Then implement the task. Do not stage, commit, or review the code yet — those
       happen in later steps.
+    force_implicit: true
     allowed_transitions:
       - tag: goto
         target: REVIEW
@@ -114,6 +114,7 @@ states:
       point is to check.
 
       Do not stage or commit yet — that happens in a later step.
+    force_implicit: true
     allowed_transitions:
       - tag: call
         target: DID_FIX
@@ -233,8 +234,7 @@ states:
       The work has been pushed successfully.  Close the task on the beads server.
 
       Run `bs close <id>` using the task ID from earlier in the conversation.
-
-      After closing, respond with `<result>GOOD</result>`.
+    force_implicit: true
     allowed_transitions:
       - tag: result
         payload: GOOD

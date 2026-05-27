@@ -12,9 +12,7 @@
 ##
 ## All scratch lives under {{task_folder}}: feature.md (copied from the input
 ## path), plan.md, beads.md.
-
-id: bead-creation
-name: Bead Creation
+name: (no-bm 2) Bead Creation
 description: >-
   Turn a finished feature document into a list of beads on the bs backlog
   server, via a plan, review, explore-codebase, review, create pipeline.
